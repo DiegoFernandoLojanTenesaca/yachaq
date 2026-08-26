@@ -17,6 +17,7 @@ from pathlib import Path
 from openai import OpenAI
 
 import herramientas
+import memoria
 
 # Groq y Cerebras regalan cuota. Ambos exponen la API con la forma de OpenAI,
 # solo cambia la dirección y el nombre del modelo.
@@ -49,6 +50,12 @@ Tienes herramientas de verdad y debes usarlas en lugar de responder de memoria:
 - Si te preguntan dónde vive o dónde verla, consulta los registros reales.
 - Si te preguntan por su biología -qué come, cómo cría, por qué es de ese
   color, cuánto vive-, busca en las fichas antes de contestar.
+- Si te piden una recomendación o algo abierto, mira primero qué especies
+  conoces. No propongas ni consultes una por una a ciegas.
+- Si te cuentan algo suyo que seguirá siendo verdad la semana que viene -qué le
+  interesa, por dónde sale al campo-, guárdalo con `recordar` y sigue con la
+  respuesta sin darle importancia. No anuncies que lo has apuntado a menos que
+  te lo pregunten, y no guardes lo que se agota en esta conversación.
 
 Cuando el modelo de identificación diga que no está seguro, dilo tú también: en
 el campo, una identificación equivocada dada con seguridad hace más daño que no
@@ -61,7 +68,11 @@ completes con lo que recuerdes: quien lee no puede distinguir un dato consultado
 de uno recordado, y los dos van en el mismo párrafo con el mismo tono. Cuando
 aportes contexto propio que no salió de una herramienta, dilo en la frase.
 
-Ecuador se divide en PROVINCIAS, no en departamentos ni en estados.
+Ecuador se divide en PROVINCIAS, no en departamentos ni en estados. Y tú no
+sabes en qué provincia cae un parque o una reserva: no lo deduzcas. Si te
+nombran un sitio, pásale ese nombre a la herramienta y deja que respondan los
+registros. Una vez se dijo «Pichincha, donde está el Cajas», y el Cajas está en
+Azuay: eso es inventarse un dato con el tono de haberlo consultado.
 
 Responde en español, breve y sin rodeos. Si una herramienta falla, cuéntalo en
 una línea y sigue con lo que sí puedas responder."""
@@ -95,14 +106,24 @@ def clave(proveedor):
 class Yachaq:
     """Mantiene la conversación y el bucle de herramientas."""
 
-    def __init__(self, proveedor=None, modelo=None):
+    def __init__(self, proveedor=None, modelo=None, usuario="anonimo", conversacion=None):
         self.proveedor = proveedor or os.environ.get("PROVEEDOR", "groq")
         if self.proveedor not in PROVEEDORES:
             sys.exit(f"Proveedor desconocido: {self.proveedor}. Hay {list(PROVEEDORES)}")
         cfg = PROVEEDORES[self.proveedor]
         self.modelo = modelo or os.environ.get("MODELO") or cfg["modelo"]
         self.cliente = OpenAI(base_url=cfg["url"], api_key=clave(self.proveedor))
-        self.historia = [{"role": "system", "content": SISTEMA}]
+        self.usuario = usuario
+        self.conversacion = conversacion
+
+        # La historia se recupera si existía, pero el mensaje de sistema se
+        # rehace siempre: lleva dentro los recuerdos, y si se restaurara el de
+        # entonces, lo aprendido después de guardar la conversación no existiría
+        # al reanudarla.
+        guardada = memoria.cargar_conversacion(conversacion) if conversacion else None
+        self.historia = guardada[1] if guardada else []
+        self.historia[:1] = [{"role": "system",
+                              "content": SISTEMA + memoria.recordatorio(usuario)}]
 
     def responder(self, mensaje, vueltas_maximas=6):
         """Una pregunta, y las llamadas a herramientas que hagan falta.
@@ -111,6 +132,9 @@ class Yachaq:
         la misma herramienta en bucle, y sin límite eso es una factura o una
         cuota agotada sin que nadie se entere.
         """
+        # Quién pregunta no es un argumento de las herramientas: si lo fuera, el
+        # modelo podría escribir otro nombre y leer la memoria de alguien más.
+        memoria.USUARIO.set(self.usuario)
         self.historia.append({"role": "user", "content": mensaje})
         usadas, reintentado = [], False
 
@@ -146,7 +170,7 @@ class Yachaq:
             self.historia.append(respuesta.model_dump(exclude_none=True))
 
             if not respuesta.tool_calls:
-                return {"respuesta": respuesta.content, "herramientas": usadas}
+                return self._cerrar({"respuesta": respuesta.content, "herramientas": usadas})
 
             for llamada in respuesta.tool_calls:
                 argumentos = json.loads(llamada.function.arguments or "{}")
@@ -159,9 +183,36 @@ class Yachaq:
                     "content": json.dumps(resultado, ensure_ascii=False),
                 })
 
-        return {"respuesta": "Me quedé dando vueltas con las herramientas y paré "
-                             "para no seguir gastando. Prueba a preguntarlo más concreto.",
-                "herramientas": usadas}
+        # Se acabaron las vueltas. En vez de devolver una rendición sin
+        # contenido, se pide una última respuesta SIN herramientas: el modelo ya
+        # tiene en la historia todo lo que consultó, y media respuesta con datos
+        # reales vale más que ninguna.
+        try:
+            ultima = self.cliente.chat.completions.create(
+                model=self.modelo,
+                messages=self.historia + [{"role": "user", "content":
+                    "Se acabaron las consultas. Responde ya con lo que averiguaste, "
+                    "y di qué te quedó por mirar."}],
+                temperature=0.3,
+            ).choices[0].message
+            self.historia.append(ultima.model_dump(exclude_none=True))
+            return self._cerrar({"respuesta": ultima.content, "herramientas": usadas,
+                                 "vueltas_agotadas": True})
+        except Exception as err:
+            return self._cerrar({"respuesta": self._explicar(err), "herramientas": usadas,
+                                 "vueltas_agotadas": True})
+
+    def _cerrar(self, salida):
+        """Deja la conversación en disco antes de devolver la respuesta.
+
+        Al terminar el turno y no en cada mensaje: si el proceso se cae a media
+        llamada, lo que se pierde es un turno, y la alternativa era guardar una
+        historia con una llamada a herramienta sin su resultado, que la API
+        rechaza al reanudar.
+        """
+        if self.conversacion:
+            memoria.guardar_conversacion(self.conversacion, self.usuario, self.historia)
+        return salida
 
     def _explicar(self, err):
         """Traduce el fallo del proveedor a algo accionable."""

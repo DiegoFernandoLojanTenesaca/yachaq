@@ -30,6 +30,8 @@ En Ecuador está registrado sobre todo en Pichincha y Azuay, entre los
 | `buscar_especie` | Resuelve el nombre en GBIF y cuenta sus fotos en Ecuador |
 | `donde_se_ha_visto` | Agrupa las observaciones reales por provincia y da el rango de altura |
 | `consultar_fichas` | Busca por significado en 691 párrafos de Wikipedia y GBIF |
+| `especies_que_conozco` | Devuelve el catálogo, para no proponer a ciegas |
+| `recordar` / `olvidar` | Guarda y borra lo que le cuentas, entre conversaciones |
 
 **El esquema que ve el modelo se genera de las firmas de las funciones**, no se
 escribe aparte. Un esquema escrito a mano es una segunda fuente de verdad que
@@ -75,7 +77,9 @@ python fichas.py          # baja las fichas (una vez)
 python fichas.py --indexar  # calcula los vectores
 python herramientas.py    # comprueba las herramientas y GBIF, sin gastar cuota
 python indice.py --calibrar # vuelve a medir el corte de parecido
+python memoria.py         # comprueba que no duplica ni borra de más
 python agente.py          # conversación por consola
+python agente.py --usuario=diego   # ...que además te recuerda
 uvicorn servidor:app --reload
 ```
 
@@ -87,16 +91,90 @@ En `http://127.0.0.1:8000/docs` está la API:
 | `POST /identificar` | sube una foto y pregunta por ella en la misma llamada |
 | `GET /salud` | si está vivo, con qué modelo y qué herramientas tiene |
 | `DELETE /conversacion/{id}` | olvida una conversación |
+| `GET /memoria/{usuario}` | **qué recuerda de ti**, con tus palabras |
+| `DELETE /memoria/{usuario}` | borra tu memoria entera |
 
 Con Docker:
 
 ```bash
 docker build -t yachaq .
-docker run -p 8000:8000 -e GROQ_API_KEY=tu_clave yachaq
+docker run -p 8000:8000 -e GROQ_API_KEY=tu_clave -v yachaq-datos:/datos yachaq
 ```
 
-El modelo de Riksi va **dentro de la imagen**: un contenedor que depende de una
-ruta del disco de quien lo construyó no es portátil.
+El modelo de Riksi, las fichas y sus vectores van **dentro de la imagen**: un
+contenedor que depende de una ruta del disco de quien lo construyó no es
+portátil. La memoria va **en un volumen**, porque dentro se borraría al recrear
+el contenedor, que es justo lo contrario de para lo que existe.
+
+## La memoria: qué se guarda y qué no
+
+Son dos cosas distintas y mezclarlas es el error fácil:
+
+- **La conversación** es el ir y venir de una sesión. Se guarda entera para que
+  «¿y dónde vive?» sepa de qué animal se habla.
+- **Los recuerdos** son hechos sueltos sobre quien pregunta —qué le interesa,
+  por dónde sale al campo— que valen en *cualquier* conversación futura.
+
+Guardar la conversación entera como memoria a largo plazo no funciona: crece sin
+tope y llena el contexto de charla. Los recuerdos los extrae el propio modelo
+con la herramienta `recordar`, cuando oye algo que le sobrevivirá a la sesión.
+Funciona de verdad: en una conversación le dices que te interesan los colibríes
+y que sales por el Cajas; en otra, empezando de cero, le preguntas qué buscar el
+fin de semana y te propone el colibrí tirio en Azuay.
+
+**El servidor se quedó sin estado.** Las conversaciones vivían en un diccionario
+del módulo, y eso eran dos problemas que son el mismo: se perdían al reiniciar y
+no se compartían entre workers, así que la segunda pregunta podía caer en otro
+proceso que no sabía de qué se hablaba. Ahora cada petición reconstruye el
+agente desde la base y lo suelta; abrir un SQLite cuesta menos que un viaje a
+Groq, y a cambio se puede replicar y reiniciar sin que nadie lo note.
+
+**Postgres tampoco aquí, y esta vez rompiendo el plan.** Lo prometía para esta
+fase. SQLite está en la biblioteca estándar, escribe con WAL y aguanta de sobra
+un servidor de un proceso. Postgres gana el día que haya varias réplicas
+escribiendo, porque SQLite no comparte fichero entre máquinas. Ese día se cambia
+un módulo.
+
+**Lo mismo dicho de otra forma no ocupa dos sitios.** «Me gustan los colibríes»
+y «me interesan mucho los colibríes» son el mismo recuerdo; sin comprobarlo, a
+las veinte conversaciones el prompt es la misma frase repetida. Se compara por
+significado con el codificador que ya usa el RAG y por encima de 0,85 no entra.
+Olvidar va por el mismo camino: «olvida lo del Cajas» busca el recuerdo más
+parecido y devuelve cuál borró, para que se pueda avisar si no era ese.
+
+**Puedes ver y borrar lo que sabe de ti.** `GET /memoria/{usuario}` lo enseña
+con tus palabras y `DELETE` lo tira. Una memoria que no se puede leer ni borrar
+es un problema, no una función.
+
+**Quién eres no es un argumento de las herramientas.** Si lo fuera, el modelo
+podría escribir otro nombre en la llamada y leer la memoria de alguien más. Va
+por fuera, lo fija el servidor. Lo que todavía no hay es autenticación: quien
+acierte un nombre lee esa memoria, y para publicarlo eso tiene que ser un token.
+
+## Dos veces que el agente se inventó la geografía
+
+Este proyecto va de distinguir lo consultado de lo recordado, y los dos fallos
+más caros fueron del mismo tipo.
+
+Preguntado qué buscar el fin de semana, respondió: *«se ha registrado en
+**Pichincha** (donde está Cajas)»*. **El Cajas está en Azuay.** Nadie le había
+dicho la provincia: cruzó de memoria el nombre del parque con la provincia que
+más salía en los registros, y lo escribió con el mismo tono que el dato real.
+
+El arreglo no fue prohibirlo en el prompt, fue darle cómo consultarlo:
+`donde_se_ha_visto` acepta ahora un `lugar`, y GBIF filtra por él. El agente ya
+no deduce dónde queda el Cajas; pregunta qué se ha visto allí. Ahora responde
+Azuay, y el caso está en la comprobación.
+
+El segundo: con una pregunta abierta se puso a consultar especies una por una
+—llegó a buscar *Puya raimondii*, que no está en el catálogo ni vive en el
+Ecuador— y agotó las vueltas sin llegar a responder. Le faltaba saber de qué
+puede hablar, así que ahora hay una herramienta que devuelve el catálogo. Pasó
+de siete llamadas sin respuesta a cuatro con respuesta.
+
+Y por si vuelve a pasar, agotar las vueltas ya no devuelve una rendición vacía:
+se pide una última respuesta **sin herramientas** para que diga lo que averiguó
+y qué le quedó por mirar. Media respuesta con datos reales vale más que ninguna.
 
 ## Decisiones tomadas
 
@@ -198,8 +276,8 @@ no dar ninguna.
       consultar registros, y puede pedir varias cosas a la vez.
 - [x] **3 · RAG** sobre fichas de especies. 691 párrafos, embeddings en local,
       corte de parecido medido.
-- [ ] **4 · Memoria** que sobreviva al reinicio: qué especies te interesan,
-      dónde sales al campo.
+- [x] **4 · Memoria** que sobrevive al reinicio: qué te interesa, por dónde
+      sales al campo. En SQLite, y el servidor se quedó sin estado.
 - [ ] **5 · Servidor MCP** para usar estas herramientas desde Claude Code o
       cualquier otro cliente.
 - [ ] **6 · Multi-agente**: uno identifica, otro verifica contra los registros,

@@ -5,3 +5,8 @@ __pycache__/
 # La clave del proveedor nunca entra al repositorio.
 clave.txt   # forma antigua, un fichero por clave
 .env
+
+# La memoria es de quien la escribe, no del repositorio.
+memoria.db*
+prueba.db*
+memoria-prueba.db*

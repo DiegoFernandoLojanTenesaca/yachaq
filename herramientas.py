@@ -150,23 +150,35 @@ def buscar_especie(nombre: str) -> dict:
     }
 
 
-def donde_se_ha_visto(especie: str, cuantas: int = 20) -> dict:
+def donde_se_ha_visto(especie: str, cuantas: int = 20, lugar: str = "") -> dict:
     """Dice en qué lugares del Ecuador se ha registrado una especie.
 
     Consulta las observaciones reales de GBIF y agrupa por provincia o
     localidad, de la más frecuente a la menos.
 
+    Si preguntan por un sitio concreto -un parque, una reserva, un cerro-, pon
+    su nombre en `lugar` en vez de deducir en qué provincia cae: tú no sabes
+    dónde queda el Cajas, y GBIF sí sabe qué se ha visto allí.
+
     Args:
         especie: nombre científico de la especie.
         cuantas: cuántos registros consultar. Entre 10 y 300.
+        lugar: nombre de un sitio para acotar la búsqueda. Vacío para todo el país.
     """
     clave, cientifico, _, via = _resolver(especie)
     if not clave:
         return {"encontrada": False, "buscado": especie,
                 "nota": "GBIF no reconoce ese nombre. No respondas por una especie parecida."}
 
+    filtro = {"q": lugar} if lugar.strip() else {}
     d = _pedir("occurrence/search", country="EC", speciesKey=clave,
-               limit=max(10, min(cuantas, 300)))
+               limit=max(10, min(cuantas, 300)), **filtro)
+    if lugar.strip() and not d.get("count"):
+        return {"encontrada": True, "especie": cientifico, "buscado_en": lugar,
+                "total_en_ecuador": 0,
+                "nota": f"GBIF no tiene ningún registro de esta especie que "
+                        f"mencione «{lugar}». Eso no prueba que no esté: prueba "
+                        f"sin acotar el lugar antes de afirmar que no vive ahí."}
     sitios, alturas = {}, []
     for oc in d.get("results", []):
         lugar = oc.get("stateProvince") or oc.get("locality") or "sin localidad"
@@ -178,6 +190,7 @@ def donde_se_ha_visto(especie: str, cuantas: int = 20) -> dict:
         "encontrada": True,
         "especie": cientifico,
         "encontrada_por": via,
+        "buscado_en": lugar or "todo el Ecuador",
         "registros_revisados": len(d.get("results", [])),
         "total_en_ecuador": d.get("count", 0),
         "lugares": sorted(sitios.items(), key=lambda kv: -kv[1])[:10],
@@ -220,11 +233,68 @@ def consultar_fichas(pregunta: str) -> dict:
     }
 
 
+def especies_que_conozco() -> dict:
+    """Las 100 especies que el identificador reconoce, con su nombre común.
+
+    Llámala ANTES de recomendar qué buscar o de responder a una pregunta
+    abierta. Sin ella no sabes de qué puedes hablar con datos y acabas
+    consultando especies una por una, o proponiendo alguna que ni siquiera vive
+    en el Ecuador.
+    """
+    _, clases, _, comunes, _ = _riksi()
+    return {
+        "cuantas": len(clases),
+        "especies": [f"{c.replace('_', ' ')}" + (f" ({comunes[c]})" if comunes.get(c) else "")
+                     for c in clases],
+        "nota": "Fuera de esta lista no puedes identificar ni tienes fichas. "
+                "Puedes buscar otra especie en GBIF, pero dilo.",
+    }
+
+
+def recordar(hecho: str, tipo: str = "dato") -> dict:
+    """Guarda algo sobre esta persona para conversaciones futuras.
+
+    Úsala cuando cuente algo suyo que seguirá siendo verdad la semana que viene:
+    qué grupo le interesa, por dónde sale al campo, con qué equipo, qué nivel
+    tiene. NO la uses para lo que se agota en esta conversación -la especie que
+    acaba de preguntar, la foto que acaba de subir- ni para datos de las
+    especies, que ya están en las fichas.
+
+    Escribe el hecho en tercera persona y entero, porque se leerá suelto y
+    dentro de un mes: «sale al campo por el Parque Nacional Cajas», no «el
+    Cajas».
+
+    Si te cuentan dos cosas en la misma frase, llama dos veces: un hecho por
+    llamada. «Me gustan los colibríes y salgo por el Cajas» son un interés y un
+    lugar, y guardarlos juntos hace imposible olvidar uno sin el otro.
+
+    Args:
+        hecho: la frase que hay que recordar, en tercera persona.
+        tipo: interes, lugar o dato.
+    """
+    import memoria
+    return memoria.guardar(hecho, tipo)
+
+
+def olvidar(sobre: str) -> dict:
+    """Borra un recuerdo cuando la persona pide que lo olvides.
+
+    Busca el recuerdo que más se parezca y lo borra. Devuelve cuál era: dilo en
+    la respuesta, para que se pueda avisar si se borró el que no era.
+
+    Args:
+        sobre: lo que hay que olvidar, con las palabras de quien lo pide.
+    """
+    import memoria
+    return memoria.borrar(sobre)
+
+
 # ── el esquema que ve el modelo ─────────────────────────────────────────────
 
 TIPOS = {str: "string", int: "integer", float: "number", bool: "boolean"}
-CATALOGO = {f.__name__: f for f in (identificar, buscar_especie,
-                                    donde_se_ha_visto, consultar_fichas)}
+CATALOGO = {f.__name__: f for f in (identificar, buscar_especie, donde_se_ha_visto,
+                                    consultar_fichas, especies_que_conozco,
+                                    recordar, olvidar)}
 
 
 def esquemas():
@@ -291,6 +361,18 @@ def prueba():
     f = consultar_fichas("¿por qué tiene los pies azules?")
     assert f["fragmentos"] and f["fragmentos"][0]["especie"] == "Sula nebouxii", f
     assert not consultar_fichas("¿cuál es la capital de Mongolia?")["fragmentos"],         "el RAG respondió a algo que no está en las fichas"
+
+    # Acotar por lugar es lo que evita que el agente deduzca la geografía. El
+    # Cajas está en Azuay, y una respuesta anterior lo situó en Pichincha
+    # cruzando de memoria el nombre del parque con la provincia más frecuente.
+    caj = donde_se_ha_visto("Metallura tyrianthina", cuantas=100, lugar="Cajas")
+    provincias = [p for p, _ in caj["lugares"]]
+    assert "Azuay" in provincias, f"el filtro por lugar no acota: {provincias}"
+
+    cat = especies_que_conozco()
+    assert cat["cuantas"] == len(cat["especies"]) == 100, cat["cuantas"]
+    con_comun = [e for e in cat["especies"] if "(" in e]
+    assert len(con_comun) > 50, f"solo {len(con_comun)}/100 llevan nombre común"
 
     assert ejecutar("no_existe", {})["error"].startswith("no existe")
     assert "error" in ejecutar("buscar_especie", {"mal": 1}), "un argumento inválido debe volver como error"
