@@ -1,0 +1,15 @@
+{
+ "tam": 288,
+ "resize": 329,
+ "media": [
+  0.485,
+  0.456,
+  0.406
+ ],
+ "desv": [
+  0.229,
+  0.224,
+  0.225
+ ],
+ "nota": "la web tiene que hacer exactamente esto antes de invocar el modelo"
+}

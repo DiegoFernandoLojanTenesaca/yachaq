@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+
+# La clave del proveedor nunca entra al repositorio.
+clave.txt
+.env
