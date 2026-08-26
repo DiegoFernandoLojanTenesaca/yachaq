@@ -120,6 +120,24 @@ rellenarlo— sino la frase *«GBIF no trae la altura en estos registros. No hay
 dato: no lo inventes»*, y el sistema prohíbe completar de memoria lo que una
 herramienta no trajo. Ahora responde: *«no dispongo de ese dato»*.
 
+**El nombre común es la puerta de atrás.** El buscador de nombres de GBIF está
+hecho para nombres científicos, y con los comunes miente de dos formas que no
+parecen mentiras:
+
+| se busca | GBIF devuelve | |
+|---|---|---|
+| `piquero patiazul` | nada, **con confianza 100** | un no-match que parece fiable |
+| `colibri cobrizo` | el género `Colibri`, confianza 92 | **un género colado como especie** |
+
+La primera versión aceptaba eso y el agente contestó tan tranquilo sobre un
+*Sterna trudeaui* que nadie había mencionado. Ahora solo se acepta una
+coincidencia **exacta** de nombre científico; si no la hay, se busca en el
+índice de nombres vernáculos, que es donde sí vive «piquero patiazul» y devuelve
+*Sula nebouxii*. La respuesta dice por qué vía se encontró.
+
+El caso está en la comprobación, con el nombre y todo: un fallo así no da error,
+da otra especie.
+
 **El agente hereda el «no lo sé» de Riksi.** El modelo de fotos trae su umbral
 calibrado, y cuando la confianza no llega, el agente lo dice en vez de afirmar.
 En el campo, una identificación equivocada dada con seguridad hace más daño que

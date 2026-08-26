@@ -110,9 +110,9 @@ class Yachaq:
         cuota agotada sin que nadie se entere.
         """
         self.historia.append({"role": "user", "content": mensaje})
-        usadas = []
+        usadas, reintentado = [], False
 
-        for _ in range(vueltas_maximas):
+        for _ in range(vueltas_maximas + 1):
             try:
                 respuesta = self.cliente.chat.completions.create(
                     model=self.modelo,
@@ -121,10 +121,20 @@ class Yachaq:
                     temperature=0.3,
                 ).choices[0].message
             except Exception as err:
-                # Los proveedores gratuitos se acaban, cambian el catálogo y
-                # cortan por cuota. Medido: Cerebras responde 402 con esta clave
-                # y Groq da 404 si pides un modelo que anuncia su documentación
-                # pero tu cuenta no sirve. Nada de eso debe salir como traza.
+                # `output_parse_failed`: el modelo escribió su razonamiento donde
+                # tocaba una llamada a herramienta y el proveedor no pudo
+                # parsearlo. Pasa de vez en cuando con los modelos abiertos y se
+                # arregla solo al reintentar, así que se reintenta una vez antes
+                # de rendirse: es un tropiezo del muestreo, no un fallo de la
+                # petición.
+                if "output_parse_failed" in str(err) and not reintentado:
+                    reintentado = True
+                    continue
+                # Lo demás sí es definitivo. Los proveedores gratuitos se acaban,
+                # cambian el catálogo y cortan por cuota: Cerebras responde 402
+                # con esta clave y Groq da 404 si pides un modelo que su
+                # documentación anuncia y tu cuenta no sirve. Nada de eso debe
+                # salir como traza.
                 return {"respuesta": self._explicar(err), "herramientas": usadas,
                         "error": type(err).__name__}
 

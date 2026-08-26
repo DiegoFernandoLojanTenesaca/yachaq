@@ -95,27 +95,57 @@ def identificar(ruta_de_la_foto: str) -> dict:
     }
 
 
+def _resolver(nombre):
+    """El nombre que da una persona, convertido en una especie de GBIF.
+
+    `species/match` está hecho para nombres científicos y con los comunes miente
+    de dos formas que no parecen mentiras:
+
+    - «piquero patiazul» no lo encuentra, pero devuelve **confianza 100**;
+    - «colibri cobrizo» devuelve el GÉNERO `Colibri` con confianza 92, y un
+      género colado como especie se propaga a todas las respuestas siguientes.
+
+    Por eso solo se acepta una coincidencia exacta de nombre científico. Si no
+    la hay, se busca entre los nombres vernáculos, que es el índice que sí
+    contiene «piquero patiazul» y devuelve *Sula nebouxii*.
+    """
+    m = _pedir("species/match", name=nombre)
+    if m.get("matchType") == "EXACT" and m.get("rank") in ("SPECIES", "SUBSPECIES"):
+        return m.get("usageKey"), m.get("canonicalName"), m, "nombre científico"
+
+    d = _pedir("species/search", q=nombre, qField="VERNACULAR", rank="SPECIES", limit=5)
+    for r in d.get("results", []):
+        if r.get("nubKey") or r.get("key"):
+            clave = r.get("nubKey") or r["key"]
+            return clave, r.get("canonicalName"), r, "nombre común"
+
+    return None, None, {}, None
+
+
 def buscar_especie(nombre: str) -> dict:
     """Busca una especie en GBIF por su nombre común o científico.
 
     Devuelve el nombre científico aceptado, el reino y la clase, más cuántas
-    observaciones con foto hay registradas en Ecuador.
+    observaciones con foto hay registradas en Ecuador. Dice también por qué vía
+    la encontró, para que se sepa si el nombre era exacto o una aproximación.
 
     Args:
         nombre: nombre científico o común, en cualquier idioma.
     """
-    m = _pedir("species/match", name=nombre)
-    if not m.get("usageKey"):
-        return {"encontrada": False, "buscado": nombre}
+    clave, cientifico, ficha, via = _resolver(nombre)
+    if not clave:
+        return {"encontrada": False, "buscado": nombre,
+                "nota": "GBIF no reconoce ese nombre. Pide el nombre científico "
+                        "en vez de responder sobre una especie parecida."}
 
-    ocurrencias = _pedir("occurrence/search", country="EC", speciesKey=m["usageKey"],
+    ocurrencias = _pedir("occurrence/search", country="EC", speciesKey=clave,
                          mediaType="StillImage", limit=0)
     return {
         "encontrada": True,
-        "especie": m.get("canonicalName"),
-        "grupo": m.get("class") or m.get("phylum"),
-        "reino": m.get("kingdom"),
-        "coincidencia": m.get("matchType"),
+        "especie": cientifico,
+        "grupo": ficha.get("class") or ficha.get("phylum"),
+        "reino": ficha.get("kingdom"),
+        "encontrada_por": via,
         "observaciones_con_foto_en_ecuador": ocurrencias.get("count", 0),
     }
 
@@ -130,11 +160,12 @@ def donde_se_ha_visto(especie: str, cuantas: int = 20) -> dict:
         especie: nombre científico de la especie.
         cuantas: cuántos registros consultar. Entre 10 y 300.
     """
-    m = _pedir("species/match", name=especie)
-    if not m.get("usageKey"):
-        return {"encontrada": False, "buscado": especie}
+    clave, cientifico, _, via = _resolver(especie)
+    if not clave:
+        return {"encontrada": False, "buscado": especie,
+                "nota": "GBIF no reconoce ese nombre. No respondas por una especie parecida."}
 
-    d = _pedir("occurrence/search", country="EC", speciesKey=m["usageKey"],
+    d = _pedir("occurrence/search", country="EC", speciesKey=clave,
                limit=max(10, min(cuantas, 300)))
     sitios, alturas = {}, []
     for oc in d.get("results", []):
@@ -145,7 +176,8 @@ def donde_se_ha_visto(especie: str, cuantas: int = 20) -> dict:
 
     return {
         "encontrada": True,
-        "especie": m.get("canonicalName"),
+        "especie": cientifico,
+        "encontrada_por": via,
         "registros_revisados": len(d.get("results", [])),
         "total_en_ecuador": d.get("count", 0),
         "lugares": sorted(sitios.items(), key=lambda kv: -kv[1])[:10],
@@ -212,10 +244,24 @@ def prueba():
     assert r["encontrada"] and r["especie"] == "Amblyrhynchus cristatus", r
     assert r["observaciones_con_foto_en_ecuador"] > 0, r
 
+    # Los nombres comunes son la trampa: `species/match` devuelve para
+    # «piquero patiazul» un no-match con confianza 100, y para «colibri
+    # cobrizo» el GÉNERO Colibri con confianza 92. Un género colado como
+    # especie contamina todas las respuestas siguientes.
+    c = buscar_especie("piquero patiazul")
+    assert c["encontrada"] and c["especie"] == "Sula nebouxii", c
+    assert c["encontrada_por"] == "nombre común", c
+
+    g = buscar_especie("colibri cobrizo")
+    assert g["especie"] != "Colibri", "se coló el género como si fuera la especie"
+
+    assert not buscar_especie("kdjfhskjdfh")["encontrada"]
+
     assert ejecutar("no_existe", {})["error"].startswith("no existe")
     assert "error" in ejecutar("buscar_especie", {"mal": 1}), "un argumento inválido debe volver como error"
     print(f"ok · {len(e)} herramientas · GBIF responde · "
-          f"{r['observaciones_con_foto_en_ecuador']:,} fotos de la iguana marina")
+          f"{r['observaciones_con_foto_en_ecuador']:,} fotos de la iguana marina · "
+          f"«piquero patiazul» resuelve a {c['especie']}")
 
 
 if __name__ == "__main__":
