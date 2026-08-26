@@ -192,10 +192,39 @@ def donde_se_ha_visto(especie: str, cuantas: int = 20) -> dict:
     }
 
 
+def consultar_fichas(pregunta: str) -> dict:
+    """Busca en las fichas de las especies para responder sobre su biología.
+
+    Sirve para lo que no está en los registros de observaciones: qué come, cómo
+    se reproduce, por qué tiene ese color, cuánto vive, qué amenazas tiene. El
+    texto viene de Wikipedia en español y de las descripciones de GBIF.
+
+    Devuelve los párrafos que vienen al caso. Si devuelve `fragmentos` vacío es
+    que la respuesta NO está en las fichas: dilo en vez de contestar de memoria.
+
+    Args:
+        pregunta: la pregunta tal cual, con sus palabras.
+    """
+    import indice
+    trozos = indice.buscar(pregunta)
+    if not trozos:
+        return {"fragmentos": [],
+                "nota": "Ninguna ficha habla de eso. No hay material: dilo y no "
+                        "lo completes de memoria."}
+    return {
+        "fragmentos": [
+            {"especie": t["especie"], "comun": t["comun"], "fuente": t["fuente"],
+             "parecido": t["parecido"], "texto": t["texto"]}
+            for t in trozos
+        ],
+    }
+
+
 # ── el esquema que ve el modelo ─────────────────────────────────────────────
 
 TIPOS = {str: "string", int: "integer", float: "number", bool: "boolean"}
-CATALOGO = {f.__name__: f for f in (identificar, buscar_especie, donde_se_ha_visto)}
+CATALOGO = {f.__name__: f for f in (identificar, buscar_especie,
+                                    donde_se_ha_visto, consultar_fichas)}
 
 
 def esquemas():
@@ -256,6 +285,12 @@ def prueba():
     assert g["especie"] != "Colibri", "se coló el género como si fuera la especie"
 
     assert not buscar_especie("kdjfhskjdfh")["encontrada"]
+
+    # El RAG tiene que saber callarse: si devolviera «lo menos malo» para
+    # cualquier cosa, el modelo lo usaría como si viniera a cuento.
+    f = consultar_fichas("¿por qué tiene los pies azules?")
+    assert f["fragmentos"] and f["fragmentos"][0]["especie"] == "Sula nebouxii", f
+    assert not consultar_fichas("¿cuál es la capital de Mongolia?")["fragmentos"],         "el RAG respondió a algo que no está en las fichas"
 
     assert ejecutar("no_existe", {})["error"].startswith("no existe")
     assert "error" in ejecutar("buscar_especie", {"mal": 1}), "un argumento inválido debe volver como error"
