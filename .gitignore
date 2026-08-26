@@ -10,3 +10,6 @@ clave.txt   # forma antigua, un fichero por clave
 memoria.db*
 prueba.db*
 memoria-prueba.db*
+
+# Los registros de la descarga son de la máquina que la corrió.
+*.log
