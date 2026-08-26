@@ -23,9 +23,7 @@ import herramientas
 PROVEEDORES = {
     "groq": {
         "url": "https://api.groq.com/openai/v1",
-        # Todos los modelos de Groq admiten herramientas; este además puede
-        # pedir varias a la vez, que es justo lo que hace falta aquí.
-        "modelo": "llama-3.3-70b-versatile",
+        "modelo": "openai/gpt-oss-120b",
         "clave_en": "GROQ_API_KEY",
     },
     "cerebras": {
@@ -34,6 +32,12 @@ PROVEEDORES = {
         "clave_en": "CEREBRAS_API_KEY",
     },
 }
+
+# El catálogo publicado no es el catálogo de tu cuenta: la documentación de Groq
+# anuncia llama-3.3-70b-versatile y esta clave responde 404 al pedirlo. Antes de
+# fijar un modelo, pregúntale a la API cuáles tiene de verdad:
+#
+#     python agente.py --modelos
 
 SISTEMA = """Eres Yachaq, un asistente de naturaleza del Ecuador. «Yachaq», en
 kichwa, es el que sabe.
@@ -49,19 +53,41 @@ el campo, una identificación equivocada dada con seguridad hace más daño que 
 dar ninguna. Da el nombre común primero y el científico después, en cursiva
 cuando el medio lo permita.
 
+NO RELLENES LOS HUECOS. Si una herramienta no trae un dato -la altura, el
+hábitat, la época de reproducción-, di que no lo tienes y para ahí. No lo
+completes con lo que recuerdes: quien lee no puede distinguir un dato consultado
+de uno recordado, y los dos van en el mismo párrafo con el mismo tono. Cuando
+aportes contexto propio que no salió de una herramienta, dilo en la frase.
+
+Ecuador se divide en PROVINCIAS, no en departamentos ni en estados.
+
 Responde en español, breve y sin rodeos. Si una herramienta falla, cuéntalo en
 una línea y sigue con lo que sí puedas responder."""
 
 
 def clave(proveedor):
+    """La clave del proveedor, del entorno o del .env.
+
+    Un fichero por proveedor no escalaba en cuanto hubo dos. El .env se parsea a
+    mano (son cuatro líneas) en vez de añadir python-dotenv como dependencia.
+    Está en el .gitignore: una clave publicada la revocan, con razón.
+    """
     variable = PROVEEDORES[proveedor]["clave_en"]
     if os.environ.get(variable):
         return os.environ[variable]
-    fichero = Path(__file__).parent / "clave.txt"
-    if fichero.exists():
-        return fichero.read_text(encoding="utf-8").strip()
-    sys.exit(f"Falta la clave. Ponla en {variable} o en clave.txt\n"
-             f"Se saca gratis en console.groq.com/keys o cloud.cerebras.ai")
+
+    entorno = Path(__file__).parent / ".env"
+    if entorno.exists():
+        for linea in entorno.read_text(encoding="utf-8").splitlines():
+            linea = linea.strip()
+            if linea.startswith("#") or "=" not in linea:
+                continue
+            nombre, _, valor = linea.partition("=")
+            if nombre.strip() == variable:
+                return valor.strip().strip('"\'')
+
+    sys.exit(f"Falta la clave de {proveedor}. Ponla en {variable} o en .env\n"
+             f"Se sacan gratis en console.groq.com/keys y cloud.cerebras.ai")
 
 
 class Yachaq:
@@ -87,12 +113,20 @@ class Yachaq:
         usadas = []
 
         for _ in range(vueltas_maximas):
-            respuesta = self.cliente.chat.completions.create(
-                model=self.modelo,
-                messages=self.historia,
-                tools=herramientas.esquemas(),
-                temperature=0.3,
-            ).choices[0].message
+            try:
+                respuesta = self.cliente.chat.completions.create(
+                    model=self.modelo,
+                    messages=self.historia,
+                    tools=herramientas.esquemas(),
+                    temperature=0.3,
+                ).choices[0].message
+            except Exception as err:
+                # Los proveedores gratuitos se acaban, cambian el catálogo y
+                # cortan por cuota. Medido: Cerebras responde 402 con esta clave
+                # y Groq da 404 si pides un modelo que anuncia su documentación
+                # pero tu cuenta no sirve. Nada de eso debe salir como traza.
+                return {"respuesta": self._explicar(err), "herramientas": usadas,
+                        "error": type(err).__name__}
 
             # El mensaje del modelo vuelve a la historia tal cual, con sus
             # llamadas: si se pierden, la API rechaza los resultados que vienen
@@ -117,10 +151,45 @@ class Yachaq:
                              "para no seguir gastando. Prueba a preguntarlo más concreto.",
                 "herramientas": usadas}
 
+    def _explicar(self, err):
+        """Traduce el fallo del proveedor a algo accionable."""
+        codigo = getattr(err, "status_code", None)
+        otro = next(p for p in PROVEEDORES if p != self.proveedor)
+        if codigo == 402:
+            return (f"{self.proveedor} pide pago: se acabó la cuota gratuita. "
+                    f"Prueba con PROVEEDOR={otro}.")
+        if codigo == 404:
+            return (f"{self.proveedor} no sirve el modelo «{self.modelo}» con esta "
+                    f"clave. Mira cuáles tienes con: python agente.py --modelos")
+        if codigo == 401:
+            return f"La clave de {self.proveedor} no vale. Revísala en el .env."
+        if codigo == 429:
+            return f"{self.proveedor} está limitando por cuota. Espera un poco o usa PROVEEDOR={otro}."
+        return f"{self.proveedor} falló: {type(err).__name__}. {err}"
+
+
+def listar_modelos():
+    """Qué modelos tiene de verdad cada clave. La documentación anuncia unos y
+    la cuenta sirve otros; esto zanja la discusión en dos segundos."""
+    for nombre, cfg in PROVEEDORES.items():
+        try:
+            cliente = OpenAI(base_url=cfg["url"], api_key=clave(nombre))
+            ids = sorted(m.id for m in cliente.models.list().data)
+            print(f"\n{nombre} ({len(ids)}):")
+            for i in ids:
+                print(f"  {'* ' if i == cfg['modelo'] else '  '}{i}")
+        except SystemExit:
+            print(f"\n{nombre}: sin clave")
+        except Exception as err:
+            print(f"\n{nombre}: {type(err).__name__} · {err}")
+
 
 def main():
     """Conversación por consola, para probar sin levantar el servidor."""
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if "--modelos" in sys.argv:
+        return listar_modelos()
+
     agente = Yachaq()
     print(f"Yachaq · {agente.proveedor} · {agente.modelo}")
     print("Escribe una pregunta, o Ctrl+C para salir.\n")

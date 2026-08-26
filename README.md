@@ -41,13 +41,27 @@ Groq y Cerebras regalan cuota y ambos hablan el mismo dialecto que OpenAI, así
 que el mismo código sirve para los dos. Se cambia con una variable de entorno:
 
 ```bash
-PROVEEDOR=groq      # llama-3.3-70b-versatile, con herramientas en paralelo
+PROVEEDOR=groq      # openai/gpt-oss-120b
 PROVEEDOR=cerebras  # gpt-oss-120b
 ```
 
-Sacar la clave es gratis en [console.groq.com/keys](https://console.groq.com/keys)
-o [cloud.cerebras.ai](https://cloud.cerebras.ai). Va en `clave.txt` o en la
-variable `GROQ_API_KEY`; el fichero está en el `.gitignore`.
+Las claves se sacan gratis en [console.groq.com/keys](https://console.groq.com/keys)
+y [cloud.cerebras.ai](https://cloud.cerebras.ai), y van en `.env`, que está en el
+`.gitignore`. Una clave publicada la revocan, con razón.
+
+**El catálogo publicado no es el catálogo de tu cuenta.** La documentación de
+Groq anuncia `llama-3.3-70b-versatile` y esta clave responde 404 al pedirlo: de
+los 14 modelos que sirve de verdad, ninguno es un Llama de chat. Antes de fijar
+un modelo, pregúntale a la API cuáles tiene:
+
+```bash
+python agente.py --modelos
+```
+
+**Y la cuota gratuita no siempre está.** Cerebras devuelve 402 con esta cuenta,
+así que el respaldo existe en el código pero no en la práctica. Por eso los
+fallos del proveedor salen traducidos a una frase accionable en vez de a una
+traza: 402 sugiere cambiar de proveedor, 404 manda a `--modelos`, 401 al `.env`.
 
 ## Correrlo
 
@@ -92,6 +106,19 @@ nadie se entere.
 
 **Los errores de una herramienta vuelven como texto, no como excepción.** El
 modelo puede leer el error y corregir; una excepción mataría la conversación.
+
+**No rellenar los huecos es una regla, no un detalle de estilo.** La primera
+versión respondía esto cuando GBIF no traía la altura:
+
+> *«la herramienta no devolvió datos de altitud, pero la especie se registra
+> habitualmente entre 2.000 y 3.500 m»*
+
+Eso es memoria disfrazada de consulta, y va en el mismo párrafo y con el mismo
+tono que los datos reales: quien lee no puede distinguirlos. El arreglo fue por
+los dos lados. La herramienta ya no devuelve `null` —un hueco invita a
+rellenarlo— sino la frase *«GBIF no trae la altura en estos registros. No hay
+dato: no lo inventes»*, y el sistema prohíbe completar de memoria lo que una
+herramienta no trajo. Ahora responde: *«no dispongo de ese dato»*.
 
 **El agente hereda el «no lo sé» de Riksi.** El modelo de fotos trae su umbral
 calibrado, y cuando la confianza no llega, el agente lo dice en vez de afirmar.

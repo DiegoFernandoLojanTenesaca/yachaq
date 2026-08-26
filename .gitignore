@@ -3,5 +3,5 @@ __pycache__/
 *.pyc
 
 # La clave del proveedor nunca entra al repositorio.
-clave.txt
+clave.txt   # forma antigua, un fichero por clave
 .env

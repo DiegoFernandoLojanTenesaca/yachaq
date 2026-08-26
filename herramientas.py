@@ -149,8 +149,13 @@ def donde_se_ha_visto(especie: str, cuantas: int = 20) -> dict:
         "registros_revisados": len(d.get("results", [])),
         "total_en_ecuador": d.get("count", 0),
         "lugares": sorted(sitios.items(), key=lambda kv: -kv[1])[:10],
+        # Un `None` invita al modelo a rellenar el hueco de memoria y presentarlo
+        # con el mismo tono que los datos consultados. Decirlo con palabras
+        # cierra esa puerta.
         "altura_metros": (
-            {"minima": min(alturas), "maxima": max(alturas)} if alturas else None
+            {"minima": min(alturas), "maxima": max(alturas), "registros": len(alturas)}
+            if alturas else
+            "GBIF no trae la altura en estos registros. No hay dato: no lo inventes."
         ),
     }
 
