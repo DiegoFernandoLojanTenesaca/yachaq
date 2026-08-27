@@ -34,7 +34,7 @@ import concurrent.futures as futuros
 import json
 import sys
 
-from agente import SISTEMA, Yachaq
+from agente import CASCADA, SISTEMA, Yachaq
 
 # Más de esto y las tareas dejan de ser «las especies de la pregunta» para ser
 # una lista inventada por el modelo. Además GBIF es de otros: doce peticiones a
@@ -114,9 +114,15 @@ def _json_de(texto):
         return {"repartir": False}
 
 
-def _preguntar(sistema, mensaje, vueltas=4):
-    """Un agente de usar y tirar, con su propio hilo de conversación."""
-    a = Yachaq(usuario="equipo")
+def _preguntar(sistema, mensaje, vueltas=4, empezar_por=None):
+    """Un agente de usar y tirar, con su propio hilo de conversación.
+
+    `empezar_por` reparte los ayudantes entre proveedores. Sin eso, los tres
+    salían a la vez contra el primero de la cascada, los tres recibían 429 y
+    los tres quemaban el mismo escalón: la cascada acababa agotada por el ritmo
+    que ella misma provocaba, no por una caída real.
+    """
+    a = Yachaq(usuario="equipo", proveedor=empezar_por)
     a.historia[0] = {"role": "system", "content": sistema}
     return a.responder(mensaje, vueltas_maximas=vueltas)
 
@@ -142,8 +148,24 @@ def responder(pregunta, usuario="anonimo", conversacion=None):
     # Aquí está todo el beneficio: las esperas a la red se solapan en vez de
     # ponerse en fila. Pero de tres en tres, no todas de golpe: el límite lo
     # pone la cuota del proveedor, no la máquina.
+    #
+    # `submit` y no `map`: map() vuelve a lanzar la excepción del primer
+    # ayudante que reviente y con ella se pierden las respuestas de todos los
+    # demás, aunque siete de ocho hubieran ido bien. Un ayudante que falla es un
+    # hueco en la tabla, no una pregunta perdida.
+    # Cada ayudante empieza por un proveedor distinto, rotando la cascada. Los
+    # demás le siguen quedando de red, así que uno caído no le cuesta nada.
     with futuros.ThreadPoolExecutor(max_workers=min(A_LA_VEZ, len(tareas))) as piscina:
-        hallazgos = list(piscina.map(lambda t: _preguntar(AYUDANTE, t), tareas))
+        lanzadas = [piscina.submit(_preguntar, AYUDANTE, t, 4,
+                                   CASCADA[i % len(CASCADA)])
+                    for i, t in enumerate(tareas)]
+        hallazgos = []
+        for f in lanzadas:
+            try:
+                hallazgos.append(f.result())
+            except Exception as err:
+                hallazgos.append({"respuesta": "", "herramientas": [],
+                                  "error": f"{type(err).__name__}: {err}"})
 
     usadas = [u for h in hallazgos for u in h["herramientas"]]
 
@@ -175,6 +197,13 @@ def prueba():
     una = responder("¿qué come el hoatzin?")
     assert not una["tareas"], f"partió una pregunta simple: {una['tareas']}"
     assert una["respuesta"], "se quedó sin responder lo fácil"
+
+    # Un ayudante que revienta no puede llevarse a los otros: con `map` la
+    # excepción se propagaba y se perdían las siete respuestas buenas.
+    with futuros.ThreadPoolExecutor(3) as piscina:
+        lanzadas = [piscina.submit(lambda n=n: 1 // n) for n in (1, 0, 2)]
+        vivos = sum(1 for f in lanzadas if not f.exception())
+    assert vivos == 2, "una tarea rota se lleva a las demás"
 
     varias = responder("compara la iguana marina, la iguana terrestre y la "
                        "tortuga gigante de Galápagos: dónde viven y qué comen")

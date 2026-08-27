@@ -173,6 +173,15 @@ Dos fallos que solo aparecen con varios agentes:
   vacíos y el redactor los escribía como *«no hay dato»* — indistinguible de un
   dato consultado. Tres a la vez, y un ayudante caído llega como *«no se pudo
   consultar»*, que es una tercera cosa. De 5 de 8 a **8 de 8**.
+- **Los ayudantes se repartían entre proveedores mal.** Los tres salían contra
+  el primero de la cascada, los tres recibían 429 y los tres quemaban el mismo
+  escalón: la cascada se agotaba por el ritmo que ella misma provocaba, no por
+  una caída. Ahora cada uno empieza por un proveedor distinto y los demás le
+  siguen quedando de red. Tres consultas: **15 s → 7 s**.
+- **Un ayudante que reventaba se llevaba a los otros siete.** `map()` vuelve a
+  lanzar la excepción del primero que falla y con ella se pierden las respuestas
+  buenas. Con `submit` y `result()` por separado, un ayudante roto es un hueco
+  en la tabla, no la pregunta entera perdida.
 
 ## MCP
 
