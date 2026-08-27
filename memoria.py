@@ -28,7 +28,6 @@ import sqlite3
 import threading
 import time
 from contextvars import ContextVar
-from functools import lru_cache
 from pathlib import Path
 
 AQUI = Path(__file__).parent
@@ -71,21 +70,34 @@ USUARIO = ContextVar("usuario", default="anonimo")
 
 _candado = threading.Lock()
 
+# Una conexión por hilo, no una compartida. Con `check_same_thread=False` y una
+# sola conexión, los tres ayudantes del multi-agente leían a la vez sobre el
+# mismo cursor y sqlite3 devolvía «bad parameter or other API misuse»: un fallo
+# que no aparece hasta que hay concurrencia de verdad, porque el candado
+# protegía las escrituras y las lecturas iban sueltas.
+#
+# Poner el candado también en las lecturas habría serializado justo lo que se
+# paraleliza. Una conexión por hilo no comparte nada, y WAL deja que varios
+# lectores y un escritor convivan sin bloquearse.
+_local = threading.local()
 
-@lru_cache(maxsize=1)
+
 def _bd():
-    cx = sqlite3.connect(BASE, check_same_thread=False)
-    cx.row_factory = sqlite3.Row
-    cx.executescript(ESQUEMA)
+    cx = getattr(_local, "cx", None)
+    if cx is None:
+        cx = _local.cx = sqlite3.connect(BASE)
+        cx.row_factory = sqlite3.Row
+        cx.executescript(ESQUEMA)
     return cx
 
 
 def _escribir(sql, *args):
-    # ponytail: un candado para todo el módulo. Con un proceso sobra; el día que
-    # haya varios, el cambio no es un candado más fino sino Postgres.
+    # El candado se queda solo para escribir: WAL admite un escritor a la vez, y
+    # sin él dos hilos guardando recuerdos chocan con «database is locked».
     with _candado:
-        cur = _bd().execute(sql, args)
-        _bd().commit()
+        cx = _bd()
+        cur = cx.execute(sql, args)
+        cx.commit()
         return cur
 
 
@@ -204,7 +216,7 @@ def prueba():
     global BASE
     BASE = AQUI / "memoria-prueba.db"
     BASE.unlink(missing_ok=True)
-    _bd.cache_clear()
+    _local.__dict__.pop("cx", None)
 
     u = "prueba"
     assert guardar("Me interesan sobre todo los colibríes", "interes", u)["guardado"]
@@ -237,10 +249,31 @@ def prueba():
 
     assert olvidar_todo(u)["borrados"] == 2 and not recuerdos(u)
 
+    # Concurrencia: los tres ayudantes del multi-agente leen y escriben a la vez.
+    # Con una conexión compartida esto reventaba con «bad parameter or other API
+    # misuse», y el fallo no salía en ninguna prueba de un solo hilo.
+    import concurrent.futures as futuros
+
+    def trajinar(n):
+        try:
+            guardar(f"le interesa el tema numero {n}", "dato", u)
+            return len(recuerdos(u))
+        finally:
+            # Cada hilo abre su conexión y hay que cerrarla: en Windows, un
+            # fichero con conexiones vivas no se deja borrar al final.
+            if getattr(_local, "cx", None):
+                _local.cx.close()
+                del _local.cx
+
+    with futuros.ThreadPoolExecutor(6) as piscina:
+        assert all(isinstance(x, int) for x in piscina.map(trajinar, range(6)))
+    assert len(recuerdos(u)) == 6, recuerdos(u)
+    olvidar_todo(u)
+
     print(f"ok · no duplica lo mismo dicho de otra forma · borra por texto libre "
-          f"· la conversación sobrevive · {BASE.name}")
+          f"· la conversación sobrevive · aguanta 6 hilos a la vez · {BASE.name}")
     _bd().close()
-    _bd.cache_clear()
+    _local.__dict__.pop("cx", None)
     BASE.unlink(missing_ok=True)
     Path(str(BASE) + "-wal").unlink(missing_ok=True)
     Path(str(BASE) + "-shm").unlink(missing_ok=True)

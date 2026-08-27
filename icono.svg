@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Yachaq">
+  <!-- La misma vesica de Riksi -ojo y hoja a la vez- porque esto es lo mismo
+       mirando: el clasificador sigue siendo el de allí. Lo que cambia es lo que
+       hay dentro del ojo. Donde Riksi tenía una pupila, Yachaq tiene un núcleo
+       con dos órbitas: ya no solo ve, decide a quién preguntar.
+       Misma paleta, basalto y liquen. -->
+  <rect width="64" height="64" rx="12" fill="#14181b"/>
+
+  <!-- la vesica, idéntica a la de Riksi -->
+  <path d="M6 32C17 14 47 14 58 32 47 50 17 50 6 32Z"
+        fill="none" stroke="#c7c24b" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M6 32H58" stroke="#c7c24b" stroke-width="1.5" opacity=".38"/>
+
+  <!-- las órbitas: las herramientas girando alrededor de quien decide -->
+  <ellipse cx="32" cy="32" rx="13" ry="6.4" fill="none" stroke="#c7c24b"
+           stroke-width="1.2" opacity=".55" transform="rotate(28 32 32)"/>
+  <ellipse cx="32" cy="32" rx="13" ry="6.4" fill="none" stroke="#c7c24b"
+           stroke-width="1.2" opacity=".55" transform="rotate(-28 32 32)"/>
+
+  <!-- los nodos: cada herramienta que puede llamar -->
+  <circle cx="43.5" cy="26.6" r="1.9" fill="#c7c24b"/>
+  <circle cx="20.5" cy="37.4" r="1.9" fill="#c7c24b"/>
+  <circle cx="43.5" cy="37.4" r="1.9" fill="#c7c24b" opacity=".6"/>
+  <circle cx="20.5" cy="26.6" r="1.9" fill="#c7c24b" opacity=".6"/>
+
+  <!-- el núcleo, donde Riksi tenía la pupila -->
+  <circle cx="32" cy="32" r="7.2" fill="#c7c24b"/>
+  <rect x="28.4" y="28.4" width="7.2" height="7.2" rx="1.6" fill="#14181b"/>
+  <circle cx="29.9" cy="29.9" r="1.35" fill="#e4e5df" opacity=".92"/>
+</svg>

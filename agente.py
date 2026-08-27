@@ -37,11 +37,6 @@ PROVEEDORES = {
         "modelo": "openai/gpt-oss-120b",
         "clave_en": "GROQ_API_KEY",
     },
-    "google": {
-        "url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "modelo": "gemini-2.5-flash",
-        "clave_en": "GOOGLE_API_KEY",
-    },
     "mistral": {
         # `mistral-large-latest` da timeout con esta cuenta; medium responde.
         "url": "https://api.mistral.ai/v1",
@@ -61,9 +56,21 @@ PROVEEDORES = {
         "clave_en": "OPENROUTER_API_KEY",
     },
     "nvidia": {
+        # Devuelve 5xx de vez en cuando y al reintentar responde. Por eso está
+        # en la cascada y no descartado: un fallo intermitente no es un fallo.
         "url": "https://integrate.api.nvidia.com/v1",
         "modelo": "deepseek-ai/deepseek-v4-flash-0731",
         "clave_en": "NVIDIA_API_KEY",
+    },
+    "google": {
+        # El último a propósito. La clave vale y el modelo llama a herramientas,
+        # pero la cuota gratuita del día se agota enseguida y a partir de ahí
+        # todo es 429. Encabezando la cascada, cada respuesta empezaba pagando
+        # una espera inútil; de último sigue sirviendo de red cuando los otros
+        # cinco fallan.
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "modelo": "gemini-2.5-flash",
+        "clave_en": "GOOGLE_API_KEY",
     },
     # Estos dos siguen aquí para que se vea que se probaron y por qué no están
     # en la cascada. Ninguno responde con las claves de este proyecto:
