@@ -38,33 +38,59 @@ escribe aparte. Un esquema escrito a mano es una segunda fuente de verdad que
 se desincroniza en cuanto alguien añade un argumento, y el fallo aparece como
 un modelo que llama mal a la herramienta, no como un error.
 
-## El proveedor es intercambiable
+## Seis proveedores, y se cambia solo
 
-Groq y Cerebras regalan cuota y ambos hablan el mismo dialecto que OpenAI, así
-que el mismo código sirve para los dos. Se cambia con una variable de entorno:
+Un agente atado a un proveedor gratuito es un agente que no funciona la mitad de
+los días. Todos hablan el dialecto de OpenAI, así que el mismo código vale para
+los seis y la cascada pasa al siguiente en cuanto uno se cae, **con la misma
+conversación**: lo que ya se consultó sigue ahí y no se repite.
+
+**La tabla salió de probarlos, no de leer sus webs.** Nueve claves, y lo que se
+mide no es que la clave valga sino que el modelo llame a herramientas, que es lo
+único que necesita este agente y no aparece en ninguna documentación:
+
+| | modelo verificado | |
+|---|---|---|
+| **groq** | `openai/gpt-oss-120b` | ✅ |
+| **google** | `gemini-2.5-flash` | ✅ |
+| **mistral** | `mistral-medium-latest` | ✅ `large` da timeout con esta cuenta |
+| **cohere** | `command-a-03-2025` | ✅ |
+| **openrouter** | `openai/gpt-oss-120b` | ✅ los `:free` dan 404 |
+| **nvidia** | `deepseek-ai/deepseek-v4-flash-0731` | ✅ `llama-3.3-70b` está retirado (410) |
+| cerebras | — | ❌ 402, saldo 0 |
+| sambanova | — | ❌ 402, saldo 0 |
+| ai21 | — | ❌ 410, API retirada |
+
+Los tres que no sirven se quedan en el código con el motivo escrito: lo que se
+probó y falló es tan útil como lo que funciona, y sin eso alguien vuelve a
+intentarlo dentro de tres meses. Fuera de la cascada, eso sí, porque probarlos
+solo añade una espera antes de un 402 seguro.
 
 ```bash
-PROVEEDOR=groq      # openai/gpt-oss-120b
-PROVEEDOR=cerebras  # gpt-oss-120b
+python agente.py --probar      # vuelve a medir cuál sirve, en 20 segundos
+python agente.py --comprobar   # rompe el primero a propósito y ve si la cascada aguanta
+PROVEEDOR=google python agente.py   # empieza por uno, los demás quedan de red
 ```
 
-Las claves se sacan gratis en [console.groq.com/keys](https://console.groq.com/keys)
-y [cloud.cerebras.ai](https://cloud.cerebras.ai), y van en `.env`, que está en el
-`.gitignore`. Una clave publicada la revocan, con razón.
+**Y el que responde se dice.** Si la respuesta la escribió el tercero de la
+cascada, va al pie: *«lo respondió mistral; groq (modelo no servido), google
+(InternalServerError) no estaban disponibles»*. No es depuración —ocultarlo
+sería vender una continuidad que no hubo.
+
+Esa frase es de una ejecución real. Groq lo rompí yo para probar; **Google se
+cayó solo**, que es exactamente el caso para el que existe esto.
+
+Las claves se sacan gratis en las consolas de cada uno y van en `.env`, que está
+en el `.gitignore`. Una clave publicada la revocan, con razón.
 
 **El catálogo publicado no es el catálogo de tu cuenta.** La documentación de
-Groq anuncia `llama-3.3-70b-versatile` y esta clave responde 404 al pedirlo: de
-los 14 modelos que sirve de verdad, ninguno es un Llama de chat. Antes de fijar
-un modelo, pregúntale a la API cuáles tiene:
+Groq anuncia `llama-3.3-70b-versatile` y esta clave responde 404 al pedirlo; los
+modelos `:free` de OpenRouter anuncian en el propio nombre una cuota que la
+cuenta no tiene. Antes de fijar un modelo, pregúntale a la API cuáles sirve:
 
 ```bash
 python agente.py --modelos
 ```
-
-**Y la cuota gratuita no siempre está.** Cerebras devuelve 402 con esta cuenta,
-así que el respaldo existe en el código pero no en la práctica. Por eso los
-fallos del proveedor salen traducidos a una frase accionable en vez de a una
-traza: 402 sugiere cambiar de proveedor, 404 manda a `--modelos`, 401 al `.env`.
 
 ## Correrlo
 
@@ -98,7 +124,7 @@ Con Docker:
 
 ```bash
 docker build -t yachaq .
-docker run -p 8000:8000 -e GROQ_API_KEY=tu_clave -v yachaq-datos:/datos yachaq
+docker run -p 8000:8000 --env-file .env -v yachaq-datos:/datos yachaq
 ```
 
 El modelo de Riksi, las fichas y sus vectores van **dentro de la imagen**: un

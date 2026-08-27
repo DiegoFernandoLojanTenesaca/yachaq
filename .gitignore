@@ -13,3 +13,6 @@ memoria-prueba.db*
 
 # Los registros de la descarga son de la máquina que la corrió.
 *.log
+
+# Índice de CodeGraph: se regenera, no se versiona.
+.codegraph/
