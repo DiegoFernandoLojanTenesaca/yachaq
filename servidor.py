@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from agente import PROVEEDORES, Yachaq
+import equipo
 import herramientas
 import memoria
 
@@ -39,6 +40,9 @@ class Pregunta(BaseModel):
     # publicado esto pasa a ser un token, y el cambio es una dependencia de
     # FastAPI, no un rediseño.
     usuario: str = "anonimo"
+    # Repartir cuesta dos llamadas de más al modelo, así que no se hace siempre:
+    # con `equipo`, el coordinador decide si la pregunta lo merece.
+    equipo: bool = False
 
 
 @app.get("/salud")
@@ -59,6 +63,9 @@ def preguntar(pregunta: Pregunta):
     """Una pregunta en lenguaje natural. Devuelve la respuesta y, a la vista,
     qué herramientas usó el agente para llegar a ella."""
     clave = pregunta.conversacion or uuid.uuid4().hex[:12]
+    if pregunta.equipo:
+        return {"conversacion": clave,
+                **equipo.responder(pregunta.mensaje, pregunta.usuario, clave)}
     agente = Yachaq(usuario=pregunta.usuario, conversacion=clave)
     return {"conversacion": clave, **agente.responder(pregunta.mensaje)}
 

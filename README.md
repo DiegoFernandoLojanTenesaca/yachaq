@@ -105,6 +105,8 @@ python herramientas.py    # comprueba las herramientas y GBIF, sin gastar cuota
 python indice.py --calibrar # vuelve a medir el corte de parecido
 python memoria.py         # comprueba que no duplica ni borra de más
 python mcp_servidor.py --comprobar   # levanta el servidor MCP y se le conecta
+python equipo.py --comprobar         # que reparta lo repartible y no lo demás
+python equipo.py "qué colibríes hay cerca de Quito"
 python agente.py          # conversación por consola
 python agente.py --usuario=diego   # ...que además te recuerda
 uvicorn servidor:app --reload
@@ -114,7 +116,7 @@ En `http://127.0.0.1:8000/docs` está la API:
 
 | Endpoint | Qué es |
 |---|---|
-| `POST /preguntar` | una pregunta; devuelve la respuesta **y qué herramientas usó** |
+| `POST /preguntar` | una pregunta; devuelve la respuesta **y qué herramientas usó**. Con `"equipo": true` la reparte si toca |
 | `POST /identificar` | sube una foto y pregunta por ella en la misma llamada |
 | `GET /salud` | si está vivo, con qué modelo y qué herramientas tiene |
 | `DELETE /conversacion/{id}` | olvida una conversación |
@@ -240,6 +242,63 @@ del cliente.
 **Por MCP no viaja quién eres**, así que la memoria se guarda bajo lo que diga
 `YACHAQ_USUARIO`. Sin eso, todo el que conecte comparte los mismos recuerdos.
 
+## Repartir la pregunta cuando no cabe en un agente
+
+El plan decía «uno identifica, otro verifica». **Al medirlo, ese verificador no
+tenía nada que hacer.** Sobre las 200 fotos del banco de Riksi:
+
+| | |
+|---|---|
+| responde con seguridad | 197 (193 bien, 4 mal) |
+| no está seguro | 3 |
+| …y la especie correcta estaba entre las tres candidatas | **0** |
+
+En las tres dudosas la respuesta correcta ni siquiera aparecía, así que un
+segundo agente mirando las mismas candidatas no podría arreglar ninguna. Habría
+sido una capa que se ve muy bien en un diagrama y no cambia una sola respuesta.
+
+Lo que sí falla es otra cosa. Preguntado *«quiero fotografiar colibríes cerca de
+Quito, ¿cuáles hay y dónde?»*, el agente consultaba las especies **una por una**
+hasta agotar las vueltas, y su propia respuesta lo confesaba: *«especies que aún
+no he consultado»*, seguido de ocho nombres.
+
+No le faltaban vueltas: le sobraba fila. Catorce consultas independientes puestas
+en serie son catorce esperas a la red que no dependen unas de otras. Medido con
+seis especies: **11,7 s en serie contra 1,9 s en paralelo**.
+
+```
+coordinador  ->  ¿son varias preguntas sobre cosas distintas?
+                 si no, responde el agente de siempre y aquí no ha pasado nada
+ayudantes    ->  una especie cada uno, a la vez, con sus herramientas
+redactor     ->  junta lo que trajeron en una tabla
+```
+
+**El caso normal sigue siendo una sola pregunta, y para ese esto se aparta.**
+Partir «¿qué come el hoatzin?» costaría tres llamadas al modelo para responder
+lo que una respondía. El coordinador puede decir que no hay nada que repartir, y
+la comprobación verifica las dos mitades: que reparta la comparación **y que no
+reparta la simple**.
+
+### Dos fallos que solo aparecen con varios agentes
+
+**El coordinador no repartía lo que más falta hacía.** «Colibríes cerca de Quito»
+no nombra ninguna especie, así que no veía nada que partir y caía al agente de
+siempre —el que se quedaba a medias. Ahora el coordinador tiene herramientas: si
+la pregunta pide un grupo, mira el catálogo y hace una tarea por especie. Pasó de
+0 tareas a 8.
+
+**Ocho ayudantes a la vez tumbaban al proveedor.** Groq y Google devolvían 429
+«limitado por ritmo», los ayudantes caídos volvían vacíos, y el redactor los
+escribía en la tabla como *«no hay dato»* —indistinguible de un dato consultado,
+que es exactamente el fallo que este proyecto lleva seis fases evitando. Tres
+especies con registros reales aparecían como si GBIF no supiera nada de ellas.
+
+El arreglo fue por los dos lados. Tres ayudantes a la vez en vez de ocho, porque
+el techo lo pone la cuota y no la máquina; y un ayudante caído ya no llega al
+redactor como una respuesta vacía sino como *«no se pudo consultar»*, que es una
+tercera cosa distinta de tener el dato y de que no exista. De 5 especies de 8 en
+la respuesta final se pasó a 8 de 8.
+
 ## Decisiones tomadas
 
 **La respuesta enseña qué herramientas se usaron.** No es depuración: es la
@@ -344,8 +403,8 @@ no dar ninguna.
       sales al campo. En SQLite, y el servidor se quedó sin estado.
 - [x] **5 · Servidor MCP**. Las mismas siete herramientas desde Claude Code o
       cualquier otro cliente, sin declarar ninguna otra vez.
-- [ ] **6 · Multi-agente**: uno identifica, otro verifica contra los registros,
-      un coordinador decide.
+- [x] **6 · Multi-agente**. Un coordinador reparte las preguntas que abarcan
+      varias especies; los ayudantes consultan a la vez y un redactor junta.
 
 ## Licencia
 
