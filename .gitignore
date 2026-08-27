@@ -16,3 +16,6 @@ memoria-prueba.db*
 
 # Índice de CodeGraph: se regenera, no se versiona.
 .codegraph/
+
+# Checkpoints del grafo: estado de ejecucion, no del proyecto.
+grafo.db*

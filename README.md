@@ -183,6 +183,46 @@ Dos fallos que solo aparecen con varios agentes:
   buenas. Con `submit` y `result()` por separado, un ayudante roto es un hueco
   en la tabla, no la pregunta entera perdida.
 
+### La misma orquestación en LangGraph
+
+`grafo.py` hace lo mismo que `equipo.py` con LangGraph, para poder comparar con
+datos en vez de con opiniones. Misma pregunta, mismas herramientas, misma
+cascada:
+
+| | a mano | LangGraph | reanudado |
+|---|---|---|---|
+| tareas repartidas | 4 | 4 | 4 |
+| consultas | 6 | 11 | 11 |
+| segundos | 18,4 | 31,0 | **0,0** |
+| sentencias de código | 55 | 95 | |
+| dependencias | 0 | **18 paquetes** | |
+
+En la ejecución normal LangGraph pierde en las cuatro columnas: casi el doble de
+código, 18 paquetes nuevos y más lento. La diferencia de consultas no es del
+framework —los ayudantes deciden cuántas herramientas usar y varía entre
+ejecuciones— pero el resto sí.
+
+**Gana en una sola cosa, y es la que importa cuando algo falla.** Una pregunta
+repartida en ocho ayudantes son ocho llamadas al modelo y otras tantas a GBIF;
+si el proceso se cae en el séptimo, la versión a mano lo repite todo. Con el
+checkpointer en SQLite, el estado queda en disco después de cada nodo y reanudar
+el mismo `thread_id` cuesta **0,0 s**.
+
+Un `invoke` con entrada nueva **no reanuda por sí solo**: arranca otra ejecución
+aunque el hilo exista. El checkpointer guarda el estado, no decide por ti si hay
+que seguir, así que `responder()` mira antes en qué punto está el hilo —
+terminado, a medias o nuevo— y solo invoca lo que falta.
+
+**Cuál usar.** Si la pregunta se responde en un intento, `equipo.py`: menos
+código y más rápido. LangGraph cuando las ejecuciones sean largas y caras, o
+haga falta inspeccionar el estado a mitad. Las dos están vivas y comprobadas; el
+servidor usa la de a mano.
+
+Y comparar sirvió para algo: al medirlas apareció que en `equipo.py` un ayudante
+que vuelve **sin error pero con la respuesta a `None`** —el modelo gastó las
+vueltas en herramientas y no llegó a redactar— reventaba la pregunta entera al
+concatenar. El grafo lo cubría por casualidad; la versión a mano no.
+
 ## MCP
 
 Las mismas siete herramientas desde cualquier cliente MCP. **El servidor no
@@ -243,6 +283,7 @@ python agente.py --probar            # qué proveedor sirve hoy
 python agente.py --comprobar         # la cascada aguanta una caída
 python mcp_servidor.py --comprobar   # MCP por stdio, de verdad
 python equipo.py --comprobar         # reparte lo repartible y nada más
+python grafo.py --comprobar          # el mismo equipo en LangGraph, y que reanude
 ```
 
 ## Decisiones
@@ -291,6 +332,7 @@ seguridad hace más daño que ninguna.
 - [x] **4** Memoria · SQLite, servidor sin estado
 - [x] **5** MCP · las mismas herramientas desde cualquier cliente
 - [x] **6** Multi-agente · coordinador, ayudantes en paralelo, redactor
+- [x] **6b** LangGraph · la misma orquestación como grafo, con checkpoints
 
 ## Licencia
 

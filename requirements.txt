@@ -7,3 +7,7 @@ pillow
 numpy
 fastembed         # embeddings del RAG, sobre el mismo ONNX y sin PyTorch
 mcp               # servidor MCP: estas herramientas desde cualquier cliente
+
+# Solo para grafo.py, la orquestacion alternativa. El resto no lo necesita.
+langgraph
+langgraph-checkpoint-sqlite

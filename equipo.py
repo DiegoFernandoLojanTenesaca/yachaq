@@ -173,7 +173,11 @@ def responder(pregunta, usuario="anonimo", conversacion=None):
     # peor fallo posible aquí: la tabla final diría «no hay dato» de una especie
     # que sí tiene registros, y eso no se distingue de un dato consultado.
     material = "\n\n".join(
-        f"### {t}\n" + (h["respuesta"] if not h.get("error") else
+        # `or`: un ayudante puede volver sin error y con la respuesta a None -el
+        # modelo devolvió solo llamadas a herramientas y se quedó sin vueltas-, y
+        # concatenar None revienta la pregunta entera.
+        f"### {t}\n" + ((h["respuesta"] or "(este ayudante volvió vacío)")
+                        if not h.get("error") else
                         "ESTE AYUDANTE NO PUDO CONSULTAR (se cayó el proveedor). "
                         "No es que falte el dato: es que no se miró. Dilo así.")
         for t, h in zip(tareas, hallazgos))
