@@ -104,6 +104,7 @@ python fichas.py --indexar  # calcula los vectores
 python herramientas.py    # comprueba las herramientas y GBIF, sin gastar cuota
 python indice.py --calibrar # vuelve a medir el corte de parecido
 python memoria.py         # comprueba que no duplica ni borra de más
+python mcp_servidor.py --comprobar   # levanta el servidor MCP y se le conecta
 python agente.py          # conversación por consola
 python agente.py --usuario=diego   # ...que además te recuerda
 uvicorn servidor:app --reload
@@ -201,6 +202,43 @@ de siete llamadas sin respuesta a cuatro con respuesta.
 Y por si vuelve a pasar, agotar las vueltas ya no devuelve una rendición vacía:
 se pide una última respuesta **sin herramientas** para que diga lo que averiguó
 y qué le quedó por mirar. Media respuesta con datos reales vale más que ninguna.
+
+## Las mismas herramientas, desde Claude Code
+
+MCP es el trato que este proyecto ya hace con Groq —«aquí tienes unas
+herramientas, llámalas si te sirven»— hablado en un protocolo que entienden
+Claude Code, Claude Desktop y los demás. El modelo que decide deja de ser el de
+la cascada y pasa a ser el del cliente; el resto no cambia.
+
+```bash
+claude mcp add yachaq -- <ruta>/.venv/Scripts/python <ruta>/mcp_servidor.py
+```
+
+**El servidor MCP no declara ninguna herramienta**, y ese es el punto entero.
+Son sesenta líneas que registran el mismo `CATALOGO` y dejan que el SDK saque
+nombre, descripción y esquema de la firma y del docstring de cada función —
+justo lo que ya hacía este proyecto para la API de OpenAI. Dos caminos, una sola
+fuente: no hay dos listas que puedan separarse.
+
+**La comprobación levanta el servidor de verdad y le habla el protocolo.**
+Llamar a `list_tools()` desde el propio proceso no probaría nada de MCP:
+probaría que existe un diccionario. Lo que puede romperse está en el medio —que
+los esquemas sobrevivan a serializarse, que el proceso no ensucie stdout, que un
+fallo vuelva como resultado en vez de cerrar la conexión—, así que arranca otro
+proceso y se conecta como cliente:
+
+```bash
+python mcp_servidor.py --comprobar
+# ok · conectado a «yachaq» por stdio · 7 herramientas, las mismas del agente
+#      · un nombre inventado no tumba la sesión
+```
+
+Ese último caso importa más de lo que parece. Por HTTP, una herramienta que
+revienta estropea una petición; por stdio, se lleva por delante la sesión entera
+del cliente.
+
+**Por MCP no viaja quién eres**, así que la memoria se guarda bajo lo que diga
+`YACHAQ_USUARIO`. Sin eso, todo el que conecte comparte los mismos recuerdos.
 
 ## Decisiones tomadas
 
@@ -304,8 +342,8 @@ no dar ninguna.
       corte de parecido medido.
 - [x] **4 · Memoria** que sobrevive al reinicio: qué te interesa, por dónde
       sales al campo. En SQLite, y el servidor se quedó sin estado.
-- [ ] **5 · Servidor MCP** para usar estas herramientas desde Claude Code o
-      cualquier otro cliente.
+- [x] **5 · Servidor MCP**. Las mismas siete herramientas desde Claude Code o
+      cualquier otro cliente, sin declarar ninguna otra vez.
 - [ ] **6 · Multi-agente**: uno identifica, otro verifica contra los registros,
       un coordinador decide.
 

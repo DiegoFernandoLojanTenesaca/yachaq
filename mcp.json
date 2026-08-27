@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "yachaq": {
+      "command": "D:\\CLAUDE PROYECTOS\\yachaq\\.venv\\Scripts\\python.exe",
+      "args": [
+        "D:\\CLAUDE PROYECTOS\\yachaq\\mcp_servidor.py"
+      ],
+      "env": {
+        "RIKSI_MODELO": "D:\\CLAUDE PROYECTOS\\yachaq\\modelo",
+        "YACHAQ_USUARIO": "diego"
+      }
+    }
+  }
+}

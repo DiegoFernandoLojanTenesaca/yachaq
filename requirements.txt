@@ -1,7 +1,9 @@
-openai            # Groq y Cerebras hablan este mismo dialecto
+openai            # los seis proveedores hablan este mismo dialecto
 fastapi
 uvicorn[standard]
 python-multipart  # subida de ficheros en FastAPI
 onnxruntime       # para correr el modelo de Riksi
 pillow
 numpy
+fastembed         # embeddings del RAG, sobre el mismo ONNX y sin PyTorch
+mcp               # servidor MCP: estas herramientas desde cualquier cliente
