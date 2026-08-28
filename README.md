@@ -107,6 +107,31 @@ filtrar por metadatos antes de buscar. Entonces cambia un fichero.
 Embeddings sobre **ONNX**, el mismo motor que ya usa Riksi: 220 MB frente a los
 2,5 GB de PyTorch.
 
+**Y con los pesos fuera del `.onnx`, para que quepa en un servidor gratuito.**
+`fastembed` carga el modelo entero en RAM y el proceso se va a 671 MB; todas las
+capas gratuitas dan 512, así que ese número decide si esto se publica o no.
+Sacando los pesos a un fichero aparte, onnxruntime los mapea desde disco en vez
+de copiarlos y el sistema pagina solo lo que se toca:
+
+| | RAM del proceso | parecido | tiempo |
+|---|---|---|---|
+| fastembed | 671 MB | 0,714 | 0,05 s |
+| pesos externos | **388 MB** | 0,714 | 0,05 s |
+
+No es una aproximación: el coseno entre los dos vectores es **1,0** y la
+diferencia máxima componente a componente es **0,0**. El agente entero, con el
+RAG cargado y el modelo de fotos, ocupa **457 MB**.
+
+Antes se intentó lo obvio —recortar el vocabulario, que son 192 de los 235 MB— y
+**no se puede**: por debajo de 200.000 tokens las dos poblaciones del corte se
+solapan. Los ids intermedios no son relleno de otros idiomas, son las subpalabras
+que sostienen el español. La tabla está en `indice.py`.
+
+```bash
+python codificador.py --preparar   # deja los pesos externos, una vez
+python codificador.py              # comprueba que da lo mismo que fastembed
+```
+
 **El corte de similitud está medido.** Con un 0,35 puesto a ojo, *«¿el volcán
 más alto de Marte?»* devolvía párrafos de un colibrí con 0,40. Catorce preguntas
 —ocho con respuesta en las fichas, seis sin ella— dan dos poblaciones que no se

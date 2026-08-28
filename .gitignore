@@ -19,3 +19,6 @@ memoria-prueba.db*
 
 # Checkpoints del grafo: estado de ejecucion, no del proyecto.
 grafo.db*
+
+# Los pesos externos del codificador: se generan, no se versionan (235 MB).
+codificador-ligero/

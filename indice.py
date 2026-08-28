@@ -37,6 +37,28 @@ MODELO_EMBEDDINGS = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 MINIMO = 0.44
 
 
+# **Se intentó adelgazarlo y no se puede.** El codificador ocupa 540 MB en
+# memoria y 192 de sus 235 MB en disco son la tabla de vocabulario: 250.002
+# tokens para ~50 idiomas, de los que este proyecto usa 8.403, el 3,4 %. Parecía
+# dinero tirado, así que se recortó la tabla y se midió el daño sobre lo único
+# que importa: que las preguntas con respuesta en las fichas sigan puntuando por
+# encima de las que no la tienen.
+#
+#     vocabulario   disco    hueco entre las dos poblaciones
+#     250.037      235 MB    +0,075   ← el de ahora
+#     200.000      204 MB    +0,084   31 MB menos; no compensa el riesgo
+#     120.000      140 MB    SE SOLAPAN
+#      80.000      108 MB    SE SOLAPAN
+#      40.000       75 MB    +0,017   sobrevive por los pelos
+#
+# Los ids intermedios no son relleno de otros idiomas: son las subpalabras que
+# sostienen el español. Cortarlas hunde las preguntas buenas más de lo que hunde
+# las malas. Tampoco hay salida por otro modelo: éste es el multilingüe más
+# pequeño de fastembed, y los de solo inglés se solapan de entrada.
+#
+# Así que los 540 MB se pagan, y la optimización va por otro lado: son perezosos
+# -sin tocar el RAG el agente ocupa 130 MB- y con eso cabe de sobra en los 16 GB
+# de un Space de Hugging Face.
 @lru_cache(maxsize=1)
 def _codificador():
     from fastembed import TextEmbedding
@@ -48,7 +70,14 @@ def vectorizar(textos):
 
     Se normalizan aquí para que buscar sea un producto escalar y nada más: con
     vectores de norma 1, el coseno y el producto son la misma operación.
+
+    Si están los pesos externos que deja `codificador.py`, se usan: es el mismo
+    cálculo —coseno 1,0 contra fastembed— con 388 MB de RAM en vez de 671, que
+    es la diferencia entre caber o no en un servidor gratuito.
     """
+    import codificador
+    if codificador.disponible():
+        return codificador.vectorizar(textos)
     v = np.array(list(_codificador().embed(textos)), dtype=np.float32)
     return v / np.linalg.norm(v, axis=1, keepdims=True)
 
