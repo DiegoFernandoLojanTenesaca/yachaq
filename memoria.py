@@ -131,29 +131,22 @@ VACIAS = {"que", "los", "las", "del", "por", "con", "para", "una", "uno", "sus",
 
 
 def _parecidos(texto, entre):
-    """Cuánto se parece `texto` a cada uno de `entre`.
+    """Cuánto se parece `texto` a cada uno de `entre`, por palabras compartidas.
 
-    **Con el codificador si está cargado, y con palabras si no.** Comparar por
-    significado es mejor, pero traer el codificador solo para esto cuesta 330 MB
-    de RAM: medido, guardar cincuenta recuerdos llevaba el proceso de 137 a 463
-    MB, y eso no cabe en un servidor de 256. Como `consultar_fichas` ya carga el
-    codificador cuando el RAG está encendido, ahí sale gratis; con el RAG
-    apagado se usa Jaccard sobre las palabras con carga semántica.
+    **Sin el codificador, a propósito.** Comparar por significado sería mejor,
+    pero cargarlo cuesta 317 MB: medido, treinta recuerdos llevaban el proceso
+    de 148 a 377 MB, y en un servidor de 512 ese pico se come el margen. Un
+    recuerdo mal deduplicado ocupa una línea de más en el prompt; quedarse sin
+    memoria mata el contenedor.
 
-    Lo que se pierde es real y conviene saberlo: Jaccard ve «me gustan los
-    colibríes» y «me interesan mucho los colibríes» como lo mismo -comparten
-    «colibries»-, pero no vería «salgo por el Cajas» y «suelo ir al Parque
-    Nacional Cajas» como tan próximos. Para deduplicar recuerdos cortos basta;
-    para el RAG no serviría, y por eso el RAG no lo usa.
+    Lo que se pierde es real: Jaccard ve «me gustan los colibríes» y «me
+    interesan mucho los colibríes» como lo mismo -comparten «colibries»-, pero
+    no vería «salgo por el Cajas» y «suelo ir al Parque Nacional Cajas» tan
+    próximos. Para deduplicar frases cortas basta; para el RAG no serviría, y
+    por eso el RAG sí paga el codificador.
     """
     if not entre:
         return []
-
-    import herramientas
-    if not herramientas.SIN_RAG:
-        import indice
-        v = indice.vectorizar([texto] + entre)
-        return (v[1:] @ v[0]).tolist()
 
     mias = _palabras(texto)
     if not mias:
@@ -312,11 +305,9 @@ def prueba():
     assert len(recuerdos(u)) == 6, recuerdos(u)
     olvidar_todo(u)
 
-    import herramientas
     print(f"ok · no duplica lo mismo dicho de otra forma · borra por texto libre "
           f"· la conversación sobrevive · aguanta 6 hilos a la vez · "
-          f"{'sin codificador' if herramientas.SIN_RAG else 'por significado'} "
-          f"· {BASE.name}")
+          f"sin cargar el codificador · {BASE.name}")
     _bd().close()
     _local.__dict__.pop("cx", None)
     BASE.unlink(missing_ok=True)

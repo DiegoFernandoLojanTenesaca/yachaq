@@ -28,15 +28,34 @@ de valer.
     python codificador.py              # comprueba que da lo mismo que fastembed
 """
 
+import gc
 import os
 import pathlib
 import sys
+import threading
 from functools import lru_cache
 
 import numpy as np
 
 AQUI = pathlib.Path(__file__).parent
 LIGERO = AQUI / "codificador-ligero"
+
+# Soltar la sesión después de cada consulta, en vez de dejarla cargada.
+#
+# **Medido**: la sesión ocupa 317 MB y recargarla cuesta 0,93 s. Con ella
+# residente el proceso pide 467 MB y en un servidor de 512 quedan 45 de margen,
+# que es demasiado poco: un pico y el contenedor muere. Soltándola, el proceso
+# vive en 137 MB y solo sube durante la consulta.
+#
+# El precio es ese segundo por pregunta al RAG. A cambio, el RAG puede estar
+# encendido: sin esto había que apagarlo entero, y entonces «¿qué come el
+# hoatzin?» no se podía responder.
+#
+# Se apaga con YACHAQ_RETENER=1 donde sobre memoria; ahí no tiene sentido pagar
+# la recarga.
+SOLTAR = os.environ.get("YACHAQ_RETENER", "").lower() not in ("1", "true", "si", "sí")
+
+_candado = threading.Lock()
 
 
 def _origen():
@@ -121,7 +140,21 @@ def _sesion():
 
 
 def vectorizar(textos):
-    """Textos a vectores normalizados. Mismo resultado que fastembed."""
+    """Textos a vectores normalizados. Mismo resultado que fastembed.
+
+    Bajo candado porque la sesión se suelta al terminar: sin él, dos hilos
+    podrían estar usando la sesión mientras un tercero la libera.
+    """
+    with _candado:
+        try:
+            return _vectorizar(textos)
+        finally:
+            if SOLTAR:
+                _sesion.cache_clear()
+                gc.collect()
+
+
+def _vectorizar(textos):
     sesion, tok, entradas = _sesion()
     codificados = tok.encode_batch(list(textos))
 
@@ -176,9 +209,16 @@ def prueba():
     solo = np.stack([vectorizar([p])[0] for p, _ in casos])
     assert np.allclose(lote, solo, atol=1e-4), "el lote no da lo mismo que uno a uno"
 
+    # La sesión tiene que quedar suelta: es lo que mantiene el proceso pequeño
+    # entre consultas, y sin comprobarlo el ahorro se pierde en cuanto alguien
+    # añada una caché por comodidad.
+    if SOLTAR:
+        assert _sesion.cache_info().currsize == 0, \
+            "la sesión sigue cargada: el proceso se queda en 460 MB"
+
     print(f"ok · idéntico a fastembed en {len(casos)} casos · el lote coincide "
           f"con uno a uno · {proceso.memory_info().rss/1e6:.0f} MB de RAM "
-          f"(fastembed: 671)")
+          f"({'suelta la sesión tras usarla' if SOLTAR else 'la retiene'})")
 
 
 if __name__ == "__main__":

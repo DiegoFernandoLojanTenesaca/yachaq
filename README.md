@@ -122,29 +122,31 @@ No es una aproximación: el coseno entre los dos vectores es **1,0** y la
 diferencia máxima componente a componente es **0,0**. El agente entero, con el
 RAG cargado y el modelo de fotos, ocupa **457 MB**.
 
-**Y si aun así no cabe, el RAG se apaga.** Hay planes gratuitos de 256 MB, y ahí
-457 no entran de ninguna manera. Con `YACHAQ_SIN_RAG=1` el agente ocupa **131 MB**
-y conserva todo lo demás: identificar, GBIF, catálogo y memoria.
+**Y la sesión se suelta después de cada consulta.** Con ella residente el
+proceso pide 467 MB, y en un servidor de 512 quedan 45 de margen: demasiado
+poco, un pico y el contenedor muere. Soltarla libera 317 MB y recargarla cuesta
+0,93 s, así que el pico existe solo mientras se responde.
 
-Y la memoria deja de arrastrarlo. Deduplicar recuerdos comparaba por
-significado, lo que cargaba el codificador aunque el RAG estuviera apagado:
-medido, cincuenta escrituras llevaban el proceso de 137 a **463 MB** y el
-interruptor no servía de nada. Con el RAG apagado se compara por palabras
-—Jaccard sobre las que cargan significado—, que para frases cortas basta y
-cuesta cero. Con el RAG encendido se sigue comparando por significado, porque
-ahí el codificador ya está en memoria.
-
-| | RAM tras 20 fotos + 50 recuerdos |
+| | pico con 10 fotos, 4 consultas al RAG y 30 recuerdos |
 |---|---|
-| completo | 464 MB · margen de 48 sobre 512 |
-| `YACHAQ_SIN_RAG=1` | **135 MB** · margen de 377 |
+| sesión residente | 467 MB · margen de 45 |
+| **soltándola** | **154 MB** · margen de 358 |
 
-No se apaga en silencio: `consultar_fichas` **desaparece del catálogo**, así que
-el modelo no la ve, y el prompt cambia para decir que no hay fichas en esta
-instalación. Un agente que anuncia una herramienta rota es peor que uno que no
-la anuncia; y la primera versión del texto conseguía algo aún peor —contestaba
-«se alimenta de hojas y brotes, pero no dispongo de datos», que es rellenar de
-memoria y admitirlo después, cuando el dato ya se leyó.
+Ese segundo por pregunta compra algo que no se podía tener de otra forma: **el
+RAG encendido en un servidor gratuito**. Antes había que apagarlo entero con
+`YACHAQ_SIN_RAG=1`, y entonces «¿qué come el hoatzin?» no tenía respuesta.
+`YACHAQ_RETENER=1` vuelve a dejarla cargada donde sobre memoria.
+
+Se intentó antes cuantizar el codificador a int8. **Reduce el disco pero no la
+RAM**: 252 MB a 135 en disco, y 395 a 397 en memoria, porque onnxruntime
+descomprime los pesos al cargarlos. El hueco del corte además se estrechaba de
++0,101 a +0,085. Descartado.
+
+Y la memoria dejó de comparar por significado. Deduplicar recuerdos cargaba el
+codificador —treinta escrituras llevaban el proceso de 148 a 377 MB— para una
+tarea que no lo necesita: ahora compara por palabras compartidas. Un recuerdo
+mal deduplicado ocupa una línea de más en el prompt; quedarse sin memoria mata
+el contenedor.
 
 Antes se intentó lo obvio —recortar el vocabulario, que son 192 de los 235 MB— y
 **no se puede**: por debajo de 200.000 tokens las dos poblaciones del corte se
