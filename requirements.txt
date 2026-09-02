@@ -2,10 +2,20 @@ openai            # los seis proveedores hablan este mismo dialecto
 fastapi
 uvicorn[standard]
 python-multipart  # subida de ficheros en FastAPI
-onnxruntime       # para correr el modelo de Riksi
-pillow
+pillow            # abre las fotos antes de clasificarlas
+
+# El RAG. `onnxruntime` EJECUTA modelos y `onnx` los ESCRIBE: hacen falta los
+# dos, porque `codificador.py --preparar` reescribe el modelo con los pesos
+# fuera. Faltaba `onnx` y el build del contenedor moría ahí, en un sitio donde
+# no se nota probando en local: la máquina de desarrollo lo tenía instalado a
+# mano de una prueba anterior.
+onnxruntime
+onnx
 numpy
-fastembed         # embeddings del RAG, sobre el mismo ONNX y sin PyTorch
+fastembed         # baja el modelo de embeddings, sobre el mismo ONNX y sin PyTorch
+tokenizers        # el tokenizador del codificador, sin pasar por fastembed
+psutil            # las comprobaciones miden la RAM, que es lo que decide si cabe
+
 mcp               # servidor MCP: estas herramientas desde cualquier cliente
 
 # Solo para grafo.py, la orquestacion alternativa. El resto no lo necesita.
