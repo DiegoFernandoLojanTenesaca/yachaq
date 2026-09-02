@@ -9,12 +9,16 @@ levantar un cliente y leer un SQLite cuesta menos que un round-trip a Groq, y a
 cambio el servidor se puede replicar y reiniciar sin que nadie lo note.
 """
 
+import os
 import shutil
 import tempfile
+import time
 import uuid
+from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -28,8 +32,49 @@ app = FastAPI(
     description="Agente de naturaleza del Ecuador. Identifica especies con el "
                 "modelo de Riksi, consulta los registros reales de GBIF y "
                 "recuerda lo que le cuentas.",
-    version="0.2",
+    version="0.3",
 )
+
+# De dónde se acepta que llamen. El chat de Riksi vive en otro dominio, así que
+# sin esto el navegador bloquea la petición antes de enviarla. Se listan los
+# orígenes en vez de poner "*": con "*" cualquier página puede montar un chat
+# encima de esta API y gastar la cuota, y las cuentas gratuitas se agotan.
+ORIGENES = [o.strip() for o in os.environ.get(
+    "YACHAQ_ORIGENES",
+    "https://diegofernandolojantenesaca.github.io,http://localhost:8080,"
+    "http://127.0.0.1:8080").split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ORIGENES,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type"],
+)
+
+# Cuántas preguntas por IP y por hora. Cada una gasta cuota de un proveedor
+# gratuito, así que sin tope una sola persona -o un bot- deja el chat inservible
+# para el resto. En memoria y no en la base: si el proceso se reinicia se
+# perdona a todo el mundo, y para esto eso es aceptable.
+POR_HORA = int(os.environ.get("YACHAQ_POR_HORA", "20"))
+_visitas: dict[str, deque] = {}
+
+
+def _pasa_el_limite(peticion: Request) -> bool:
+    ip = (peticion.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (peticion.client.host if peticion.client else "?"))
+    ahora = time.time()
+    cola = _visitas.setdefault(ip, deque())
+    while cola and ahora - cola[0] > 3600:
+        cola.popleft()
+    if len(cola) >= POR_HORA:
+        return False
+    cola.append(ahora)
+
+    # Sin esto, el diccionario crece con cada IP que pase por aquí.
+    if len(_visitas) > 5000:
+        for k in [k for k, v in _visitas.items() if not v or ahora - v[-1] > 3600]:
+            _visitas.pop(k, None)
+    return True
 
 
 class Pregunta(BaseModel):
@@ -55,13 +100,23 @@ def salud():
         "herramientas": [e["function"]["name"] for e in herramientas.esquemas()],
         "conversaciones_guardadas": bd.execute("SELECT count(*) FROM conversaciones").fetchone()[0],
         "recuerdos_guardados": bd.execute("SELECT count(*) FROM recuerdos").fetchone()[0],
+        "origenes_permitidos": ORIGENES,
+        "preguntas_por_hora": POR_HORA,
     }
 
 
 @app.post("/preguntar")
-def preguntar(pregunta: Pregunta):
+def preguntar(pregunta: Pregunta, peticion: Request):
     """Una pregunta en lenguaje natural. Devuelve la respuesta y, a la vista,
     qué herramientas usó el agente para llegar a ella."""
+    if not _pasa_el_limite(peticion):
+        return JSONResponse(status_code=429, content={
+            "respuesta": f"Has hecho {POR_HORA} preguntas en la última hora, que "
+                         f"es el tope. La cuota es de un plan gratuito y se acaba. "
+                         f"Vuelve en un rato; el identificador de la cámara sigue "
+                         f"funcionando, que ese va dentro de tu navegador.",
+            "herramientas": []})
+
     clave = pregunta.conversacion or uuid.uuid4().hex[:12]
     if pregunta.equipo:
         return {"conversacion": clave,
