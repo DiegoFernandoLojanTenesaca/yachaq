@@ -17,7 +17,7 @@ import uuid
 from collections import deque
 from pathlib import Path
 
-from fastapi import FastAPI, File, Request, UploadFile
+from fastapi import FastAPI, File, Header, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -56,6 +56,23 @@ app.add_middleware(
 # para el resto. En memoria y no en la base: si el proceso se reinicia se
 # perdona a todo el mundo, y para esto eso es aceptable.
 POR_HORA = int(os.environ.get("YACHAQ_POR_HORA", "20"))
+
+# **Leer la memoria de alguien exige la llave; usarla, no.** Cualquiera puede
+# preguntar y el agente recordará lo que le cuenten bajo el nombre que envíen,
+# pero `GET /memoria/{usuario}` deja ver esos recuerdos y `DELETE` los borra, y
+# eso con solo acertar un nombre es demasiado.
+#
+# No es autenticación de verdad -no hay cuentas, y no las hace falta todavía-,
+# es cerrar dos endpoints que no deberían estar abiertos en un servicio
+# publicado. Sin `YACHAQ_LLAVE` configurada quedan abiertos, que es lo cómodo en
+# local; en producción se pone y ya está.
+LLAVE = os.environ.get("YACHAQ_LLAVE", "")
+
+
+def _con_llave(dada: str | None) -> bool:
+    """Compara en tiempo constante: comparar con `==` filtra la longitud."""
+    import secrets
+    return not LLAVE or (dada is not None and secrets.compare_digest(dada, LLAVE))
 _visitas: dict[str, deque] = {}
 
 
@@ -102,6 +119,7 @@ def salud():
         "recuerdos_guardados": bd.execute("SELECT count(*) FROM recuerdos").fetchone()[0],
         "origenes_permitidos": ORIGENES,
         "preguntas_por_hora": POR_HORA,
+        "memoria_protegida": bool(LLAVE),
     }
 
 
@@ -157,16 +175,25 @@ def olvidar_conversacion(clave: str):
 
 
 @app.get("/memoria/{usuario}")
-def ver_memoria(usuario: str):
+def ver_memoria(usuario: str, llave: str | None = Header(default=None,
+                                                         alias="X-Yachaq-Llave")):
     """Qué recuerda de alguien, con sus palabras.
 
     Una memoria que no se puede leer ni borrar es un problema, no una función:
-    quien habla tiene derecho a ver qué se apuntó de él y a quitarlo.
+    quien habla tiene derecho a ver qué se apuntó de él y a quitarlo. Pero en un
+    servicio publicado eso no puede depender de acertar un nombre.
     """
+    if not _con_llave(llave):
+        return JSONResponse(status_code=401, content={
+            "error": "Esto necesita la llave, en la cabecera X-Yachaq-Llave."})
     return {"usuario": usuario, "recuerdos": memoria.recuerdos(usuario)}
 
 
 @app.delete("/memoria/{usuario}")
-def borrar_memoria(usuario: str):
+def borrar_memoria(usuario: str, llave: str | None = Header(default=None,
+                                                            alias="X-Yachaq-Llave")):
     """Borra la memoria entera de alguien."""
+    if not _con_llave(llave):
+        return JSONResponse(status_code=401, content={
+            "error": "Esto necesita la llave, en la cabecera X-Yachaq-Llave."})
     return {"usuario": usuario, **memoria.olvidar_todo(usuario)}

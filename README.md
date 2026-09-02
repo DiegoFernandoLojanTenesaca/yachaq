@@ -223,8 +223,13 @@ de un proceso. Postgres el día que haya réplicas escribiendo a la vez.
   mucho los colibríes» son el mismo recuerdo; por encima de 0,85 no entra.
 - **Inspeccionable y borrable.** `GET /memoria/{usuario}` y `DELETE`.
 - **El usuario no es argumento de las herramientas.** Si lo fuera, el modelo
-  podría escribir otro nombre y leer la memoria de alguien más. Falta
-  autenticación: hoy quien acierte un nombre lee esa memoria.
+  podría escribir otro nombre y leer la memoria de alguien más.
+- **Leerla exige una llave; usarla, no.** Cualquiera puede preguntar y el agente
+  recordará lo que le cuenten, pero `GET`/`DELETE /memoria/{usuario}` piden la
+  cabecera `X-Yachaq-Llave`. No es autenticación de verdad —no hay cuentas, ni
+  hacen falta todavía—, es cerrar dos endpoints que con solo acertar un nombre
+  dejaban ver y borrar recuerdos ajenos. Sin `YACHAQ_LLAVE` configurada quedan
+  abiertos, que es lo cómodo en local.
 - **Una conexión por hilo.** Con una compartida, los tres ayudantes del
   multi-agente leían a la vez y sqlite3 devolvía *«bad parameter or other API
   misuse»*. El candado protegía las escrituras y las lecturas iban sueltas;
