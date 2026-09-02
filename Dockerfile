@@ -9,11 +9,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# El modelo de embeddings del RAG son 220 MB que se bajan la primera vez que se
-# usa. Bajarlos aquí y no en el arranque: si no, el primer usuario del
-# contenedor paga la descarga esperando su respuesta.
-RUN python -c "from fastembed import TextEmbedding;     TextEmbedding(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
-
 COPY *.py ./
 COPY modelo/ ./modelo/
 # Las fichas y sus vectores van dentro: sin ellos el agente arranca pero
@@ -22,11 +17,19 @@ COPY modelo/ ./modelo/
 COPY fichas.jsonl vectores.npy ./
 ENV RIKSI_MODELO=/app/modelo
 
-# Los pesos del codificador, fuera del .onnx. Es lo que hace que quepa: cargados
-# por fastembed son 671 MB de RAM y las capas gratuitas dan 512; mapeados desde
-# disco son 388, con el mismo resultado (coseno 1,0). Se genera al construir,
-# porque en el arranque costaría medio minuto al primero que pregunte.
-RUN python codificador.py --preparar
+# El codificador, en una sola pasada. `--preparar` baja el modelo si no está y
+# escribe los pesos fuera del .onnx, que es lo que hace que quepa: cargados por
+# fastembed son 671 MB de RAM y con los pesos mapeados desde disco son 388, con
+# el mismo resultado (coseno 1,0 contra fastembed).
+#
+# Va al construir y no al arrancar por dos razones: el primero que pregunte no
+# paga la descarga, y si el modelo desapareciera de su origen el fallo saldría
+# aquí y no en producción.
+#
+# Después se borra la caché intermedia: son otros 235 MB de los mismos pesos que
+# ya están en codificador-ligero/, y una imagen con todo por duplicado tarda más
+# en desplegarse cada vez.
+RUN python codificador.py --preparar &&     rm -rf /tmp/fastembed_cache /root/.cache/fastembed
 
 # La memoria fuera del sistema de ficheros del contenedor. Dentro se borraría al
 # recrearlo, que es justo lo contrario de para lo que existe.
