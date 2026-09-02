@@ -29,6 +29,15 @@ AGENTE = "yachaq/0.1 (https://github.com/DiegoFernandoLojanTenesaca)"
 # reentrena allí.
 MODELO = Path(os.environ.get("RIKSI_MODELO", r"D:\CLAUDE PROYECTOS\riksi\docs\modelo"))
 
+# El RAG cuesta 330 MB de RAM: sin él el agente ocupa 130 y con él 457. En un
+# servidor gratuito de 256 MB eso es la diferencia entre arrancar y morir al
+# primer uso, así que se puede apagar sin tocar el código.
+#
+# No se apaga en silencio: `consultar_fichas` desaparece del catálogo, de modo
+# que el modelo no la ve y no promete lo que no puede cumplir. Un agente que
+# ofrece una herramienta rota es peor que uno que no la ofrece.
+SIN_RAG = os.environ.get("YACHAQ_SIN_RAG", "").lower() in ("1", "true", "si", "sí")
+
 
 @lru_cache(maxsize=1)
 def _riksi():
@@ -294,7 +303,8 @@ def olvidar(sobre: str) -> dict:
 TIPOS = {str: "string", int: "integer", float: "number", bool: "boolean"}
 CATALOGO = {f.__name__: f for f in (identificar, buscar_especie, donde_se_ha_visto,
                                     consultar_fichas, especies_que_conozco,
-                                    recordar, olvidar)}
+                                    recordar, olvidar)
+            if not (SIN_RAG and f is consultar_fichas)}
 
 
 def esquemas():
@@ -355,6 +365,12 @@ def prueba():
     assert g["especie"] != "Colibri", "se coló el género como si fuera la especie"
 
     assert not buscar_especie("kdjfhskjdfh")["encontrada"]
+
+    if SIN_RAG:
+        assert "consultar_fichas" not in CATALOGO, "el RAG está apagado pero sigue anunciado"
+        print(f"ok · {len(e)} herramientas · GBIF responde · RAG apagado por "
+              f"YACHAQ_SIN_RAG (ahorra 330 MB)")
+        return
 
     # El RAG tiene que saber callarse: si devolviera «lo menos malo» para
     # cualquier cosa, el modelo lo usaría como si viniera a cuento.

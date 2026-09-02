@@ -197,7 +197,7 @@ class Yachaq:
         guardada = memoria.cargar_conversacion(conversacion) if conversacion else None
         self.historia = guardada[1] if guardada else []
         self.historia[:1] = [{"role": "system",
-                              "content": SISTEMA + memoria.recordatorio(usuario)}]
+                              "content": self._sistema() + memoria.recordatorio(usuario)}]
 
     def _usar(self, proveedor):
         cfg = PROVEEDORES[proveedor]
@@ -224,6 +224,25 @@ class Yachaq:
         return {402: "sin cuota", 404: "modelo no servido", 401: "clave invalida",
                 429: "limitado por ritmo", 410: "API retirada",
                 }.get(getattr(err, "status_code", None), type(err).__name__)
+
+    @staticmethod
+    def _sistema():
+        """El prompt, ajustado a las herramientas que de verdad hay.
+
+        Si el RAG está apagado por memoria, prometerlo en el prompt haría que el
+        modelo dijera «déjame buscar en las fichas» y luego no encontrara la
+        herramienta.
+        """
+        if "consultar_fichas" in herramientas.CATALOGO:
+            return SISTEMA
+        return SISTEMA.replace(
+            "- Si te preguntan por su biología -qué come, cómo cría, por qué es de ese\n"
+            "  color, cuánto vive-, busca en las fichas antes de contestar.\n",
+            "- NO tienes fichas de biología en esta instalación. Si preguntan qué\n"
+            "  come o cómo cría, di ESO Y NADA MÁS, y ofrece lo que sí puedes:\n"
+            "  dónde se ha registrado. No adelantes la respuesta de memoria antes\n"
+            "  de admitir que no la tienes; un dato recordado seguido de «pero no\n"
+            "  tengo datos» ya se leyó, y quien lo lee no distingue su origen.\n")
 
     def responder(self, mensaje, vueltas_maximas=6):
         """Una pregunta, y las llamadas a herramientas que hagan falta.

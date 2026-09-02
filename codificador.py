@@ -40,10 +40,29 @@ LIGERO = AQUI / "codificador-ligero"
 
 
 def _origen():
-    """Los ficheros que dejó fastembed la primera vez que se usó."""
-    for c in (pathlib.Path(os.environ.get("LOCALAPPDATA", "/tmp")) / "Temp" / "fastembed_cache",
-              pathlib.Path("/tmp/fastembed_cache"),
-              pathlib.Path.home() / ".cache" / "fastembed"):
+    """Los ficheros que dejó fastembed la primera vez que se usó.
+
+    La caché cae en un sitio distinto en cada sistema, así que se buscan los
+    candidatos y, si ninguno tiene el modelo, se descarga: dentro de un
+    contenedor recién construido no hay caché previa que encontrar.
+    """
+    import tempfile
+
+    candidatos = [
+        pathlib.Path(os.environ.get("LOCALAPPDATA", "/tmp")) / "Temp" / "fastembed_cache",
+        pathlib.Path(tempfile.gettempdir()) / "fastembed_cache",
+        pathlib.Path.home() / ".cache" / "fastembed",
+    ]
+    for c in candidatos:
+        hallado = list(c.glob("**/model_optimized.onnx"))
+        if hallado:
+            return hallado[0].parent
+
+    # Sin caché: se baja. Es lo que pasa al construir la imagen.
+    from fastembed import TextEmbedding
+    TextEmbedding(model_name="sentence-transformers/"
+                             "paraphrase-multilingual-MiniLM-L12-v2")
+    for c in candidatos:
         hallado = list(c.glob("**/model_optimized.onnx"))
         if hallado:
             return hallado[0].parent

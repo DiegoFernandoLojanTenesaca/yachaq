@@ -122,6 +122,17 @@ No es una aproximación: el coseno entre los dos vectores es **1,0** y la
 diferencia máxima componente a componente es **0,0**. El agente entero, con el
 RAG cargado y el modelo de fotos, ocupa **457 MB**.
 
+**Y si aun así no cabe, el RAG se apaga.** Hay planes gratuitos de 256 MB, y ahí
+457 no entran de ninguna manera. Con `YACHAQ_SIN_RAG=1` el agente ocupa **131 MB**
+y conserva todo lo demás: identificar, GBIF, catálogo y memoria.
+
+No se apaga en silencio: `consultar_fichas` **desaparece del catálogo**, así que
+el modelo no la ve, y el prompt cambia para decir que no hay fichas en esta
+instalación. Un agente que anuncia una herramienta rota es peor que uno que no
+la anuncia; y la primera versión del texto conseguía algo aún peor —contestaba
+«se alimenta de hojas y brotes, pero no dispongo de datos», que es rellenar de
+memoria y admitirlo después, cuando el dato ya se leyó.
+
 Antes se intentó lo obvio —recortar el vocabulario, que son 192 de los 235 MB— y
 **no se puede**: por debajo de 200.000 tokens las dos poblaciones del corte se
 solapan. Los ids intermedios no son relleno de otros idiomas, son las subpalabras

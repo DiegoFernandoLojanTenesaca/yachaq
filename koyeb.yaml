@@ -1,0 +1,68 @@
+# Despliegue en Koyeb. Se puede hacer todo desde su web, pero tenerlo escrito
+# evita que la configuración viva solo en la cabeza de quien la hizo.
+#
+# Por qué Koyeb y no otro: 512 MB gratis, no duerme y no pide tarjeta. Yachaq
+# ocupa 457 MB con todo cargado -y solo llega ahí cuando alguien usa el RAG-,
+# así que entra. Hugging Face Spaces se descartó: desde 2026 los Spaces con
+# Docker exigen PRO y solo los estáticos son gratis.
+#
+#   1. Conecta el repo en https://app.koyeb.com/services/new
+#   2. Builder: Dockerfile (lo detecta solo)
+#   3. Instance: Free · Region: Washington, D.C. (was) es la más cercana
+#   4. Pega las variables de abajo como SECRETS, no como variables normales
+#   5. Health check: HTTP GET /salud
+
+name: yachaq
+services:
+  - name: api
+    git:
+      repository: github.com/DiegoFernandoLojanTenesaca/yachaq
+      branch: main
+      builder: dockerfile
+    instance_types:
+      - type: free
+    regions:
+      - was
+    ports:
+      - port: 8000
+        protocol: http
+    health_checks:
+      # `/salud` no llama a ningún proveedor, así que comprobar que vive no
+      # gasta cuota. El arranque es lento -carga el modelo de fotos- y sin un
+      # margen generoso Koyeb mata el contenedor antes de que responda.
+      - http:
+          path: /salud
+        grace_period: 90
+        interval: 30
+    env:
+      # Las claves van como SECRETS en el panel de Koyeb, nunca aquí. Basta con
+      # una: la cascada usa las que encuentre y se salta las que falten.
+      - key: GROQ_API_KEY
+        secret: groq-api-key
+      - key: MISTRAL_API_KEY
+        secret: mistral-api-key
+      - key: COHERE_API_KEY
+        secret: cohere-api-key
+      - key: OPENROUTER_API_KEY
+        secret: openrouter-api-key
+      - key: NVIDIA_API_KEY
+        secret: nvidia-api-key
+      - key: GOOGLE_API_KEY
+        secret: google-api-key
+
+      # De dónde se acepta que llamen. Sin esto el navegador bloquea la petición
+      # del chat antes de enviarla.
+      - key: YACHAQ_ORIGENES
+        value: https://diegofernandolojantenesaca.github.io
+
+      # Preguntas por IP y hora. Cada una gasta cuota gratuita: sin tope, una
+      # persona deja el chat inservible para el resto.
+      - key: YACHAQ_POR_HORA
+        value: "20"
+
+      # La instancia gratuita no tiene disco persistente, así que la memoria vive
+      # dentro del contenedor y se pierde al redesplegar. Es aceptable: lo que se
+      # pierde son preferencias, no datos de nadie. El día que haga falta que
+      # sobreviva, es un volumen.
+      - key: YACHAQ_MEMORIA
+        value: /tmp/memoria.db
