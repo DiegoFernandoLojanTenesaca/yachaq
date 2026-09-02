@@ -126,6 +126,19 @@ RAG cargado y el modelo de fotos, ocupa **457 MB**.
 457 no entran de ninguna manera. Con `YACHAQ_SIN_RAG=1` el agente ocupa **131 MB**
 y conserva todo lo demás: identificar, GBIF, catálogo y memoria.
 
+Y la memoria deja de arrastrarlo. Deduplicar recuerdos comparaba por
+significado, lo que cargaba el codificador aunque el RAG estuviera apagado:
+medido, cincuenta escrituras llevaban el proceso de 137 a **463 MB** y el
+interruptor no servía de nada. Con el RAG apagado se compara por palabras
+—Jaccard sobre las que cargan significado—, que para frases cortas basta y
+cuesta cero. Con el RAG encendido se sigue comparando por significado, porque
+ahí el codificador ya está en memoria.
+
+| | RAM tras 20 fotos + 50 recuerdos |
+|---|---|
+| completo | 464 MB · margen de 48 sobre 512 |
+| `YACHAQ_SIN_RAG=1` | **135 MB** · margen de 377 |
+
 No se apaga en silencio: `consultar_fichas` **desaparece del catálogo**, así que
 el modelo no la ve, y el prompt cambia para decir que no hay fichas en esta
 instalación. Un agente que anuncia una herramienta rota es peor que uno que no

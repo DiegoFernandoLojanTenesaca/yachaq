@@ -111,17 +111,59 @@ def recuerdos(usuario=None, tope=TOPE):
     return [dict(f) for f in filas]
 
 
-def _parecidos(texto, entre):
-    """Cuánto se parece `texto` a cada uno de `entre`, por significado.
+def _palabras(texto):
+    """Las palabras que cargan el significado, sin tildes ni relleno.
 
-    Reusa el codificador del RAG: ya está cargado en memoria y evita que
-    «salgo por el Cajas» y «suelo ir al Cajas» cuenten como dos cosas.
+    Se quitan las vacías porque «me gustan los colibríes» y «salgo al campo por
+    el Cajas» comparten cinco de ellas y sin filtrarlas parecerían lo mismo.
+    """
+    limpio = texto.lower()
+    for a, b in zip("áéíóúü", "aeiouu"):
+        limpio = limpio.replace(a, b)
+    return {p for p in "".join(c if c.isalnum() else " " for c in limpio).split()
+            if len(p) > 2 and p not in VACIAS}
+
+
+VACIAS = {"que", "los", "las", "del", "por", "con", "para", "una", "uno", "sus",
+          "muy", "mas", "pero", "como", "esta", "este", "son", "les", "sale",
+          "salgo", "campo", "casi", "siempre", "sobre", "todo", "gusta",
+          "gustan", "interesa", "interesan", "mucho", "quiere", "quiero"}
+
+
+def _parecidos(texto, entre):
+    """Cuánto se parece `texto` a cada uno de `entre`.
+
+    **Con el codificador si está cargado, y con palabras si no.** Comparar por
+    significado es mejor, pero traer el codificador solo para esto cuesta 330 MB
+    de RAM: medido, guardar cincuenta recuerdos llevaba el proceso de 137 a 463
+    MB, y eso no cabe en un servidor de 256. Como `consultar_fichas` ya carga el
+    codificador cuando el RAG está encendido, ahí sale gratis; con el RAG
+    apagado se usa Jaccard sobre las palabras con carga semántica.
+
+    Lo que se pierde es real y conviene saberlo: Jaccard ve «me gustan los
+    colibríes» y «me interesan mucho los colibríes» como lo mismo -comparten
+    «colibries»-, pero no vería «salgo por el Cajas» y «suelo ir al Parque
+    Nacional Cajas» como tan próximos. Para deduplicar recuerdos cortos basta;
+    para el RAG no serviría, y por eso el RAG no lo usa.
     """
     if not entre:
         return []
-    import indice
-    v = indice.vectorizar([texto] + entre)
-    return (v[1:] @ v[0]).tolist()
+
+    import herramientas
+    if not herramientas.SIN_RAG:
+        import indice
+        v = indice.vectorizar([texto] + entre)
+        return (v[1:] @ v[0]).tolist()
+
+    mias = _palabras(texto)
+    if not mias:
+        return [0.0] * len(entre)
+    salida = []
+    for otro in entre:
+        suyas = _palabras(otro)
+        union = mias | suyas
+        salida.append(len(mias & suyas) / len(union) if union else 0.0)
+    return salida
 
 
 def guardar(texto, tipo="dato", usuario=None):
@@ -270,8 +312,11 @@ def prueba():
     assert len(recuerdos(u)) == 6, recuerdos(u)
     olvidar_todo(u)
 
+    import herramientas
     print(f"ok · no duplica lo mismo dicho de otra forma · borra por texto libre "
-          f"· la conversación sobrevive · aguanta 6 hilos a la vez · {BASE.name}")
+          f"· la conversación sobrevive · aguanta 6 hilos a la vez · "
+          f"{'sin codificador' if herramientas.SIN_RAG else 'por significado'} "
+          f"· {BASE.name}")
     _bd().close()
     _local.__dict__.pop("cx", None)
     BASE.unlink(missing_ok=True)
