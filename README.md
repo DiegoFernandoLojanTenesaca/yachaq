@@ -10,6 +10,9 @@
 *Yachaq* (*el que sabe*) pone ese clasificador detrás de un agente que además
 consulta GBIF, busca en fichas y recuerda con quién habla.
 
+**Está en marcha**, en la burbuja de
+[riksi](https://diegofernandolojantenesaca.github.io/riski/).
+
 </div>
 
 ---
@@ -36,6 +39,40 @@ Registrado sobre todo en Pichincha y Azuay, entre 2.400 y 4.100 m.
 | Qué hace | clasifica una foto | decide qué consultar y lo junta |
 | Datos | 100 especies + 74 aves por canto | + GBIF en vivo + 691 fichas |
 | Conexión | funciona sin internet | necesita red y un LLM |
+
+## Desplegado
+
+Corre en Northflank con **0,2 vCPU y 512 MB**, y el chat de Riksi le habla desde
+GitHub Pages.
+
+```bash
+curl https://p01--yachaq--cy89s24rhlmp.code.run/salud
+```
+
+Que quepa en 512 MB no salió gratis: son las tres decisiones de la sección del
+RAG —pesos externos, sesión que se suelta, memoria sin codificador— y sin
+ninguna de ellas el contenedor moría al primer uso.
+
+| | |
+|---|---|
+| pico con 10 fotos, 4 consultas al RAG y 30 recuerdos | **154 MB** |
+| respuesta con las 7 herramientas | 9-22 s |
+| `/salud` | 0,4 s |
+
+**Elegir dónde alojarlo costó más que escribirlo.** El plan gratuito de 2026 es
+más pobre de lo que dicen las guías, y se probaron seis:
+
+| | free real | tarjeta | Docker |
+|---|---|---|---|
+| **Northflank** | ✅ 2 servicios, no duerme | sí, verificación | ✅ |
+| Render | ✅ 750 h/mes | no | ✅ duerme 15 min |
+| Koyeb | ❌ 5 h y cobra | sí | ✅ |
+| Fly.io | ❌ solo prueba | sí | ✅ |
+| Hugging Face | ❌ Docker exige PRO | — | — |
+| Leapcell | ✅ | no | ❌ sin Dockerfile |
+
+Northflank pide tarjeta para verificar identidad, no para cobrar, y a cambio no
+duerme. Render es la alternativa sin tarjeta si el arranque en frío no molesta.
 
 ## Arquitectura
 
@@ -384,6 +421,7 @@ seguridad hace más daño que ninguna.
 - [x] **5** MCP · las mismas herramientas desde cualquier cliente
 - [x] **6** Multi-agente · coordinador, ayudantes en paralelo, redactor
 - [x] **6b** LangGraph · la misma orquestación como grafo, con checkpoints
+- [x] **7** Desplegado · Northflank, 512 MB, conectado al chat de Riksi
 
 ## Licencia
 
