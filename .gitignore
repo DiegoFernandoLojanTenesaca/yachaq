@@ -24,3 +24,6 @@ grafo.db*
 codificador-ligero/
 
 local.db*
+
+# Las variables para el hosting llevan las claves dentro.
+variables-northflank.txt
