@@ -1,0 +1,61 @@
+# Que las comprobaciones pasen hoy, no solo el día que se escribieron.
+#
+# **Sin claves.** Los autochequeos que necesitan un proveedor -`agente.py
+# --comprobar`, que tira la cascada a propósito- se quedan fuera: meter las
+# claves aquí sería exponerlas para probar algo que ya se prueba en local antes
+# de desplegar. Lo que corre es lo que se rompe al editar y no depende de nadie:
+# los esquemas de las herramientas, la memoria y el índice.
+#
+# GBIF sí se toca, porque `herramientas.py --comprobar` comprueba justo eso: que
+# el nombre común «piquero patiazul» siga resolviendo a *Sula nebouxii*. Si GBIF
+# cambia su búsqueda, esto avisa, y ese es el fallo que da otra especie en vez de
+# un error.
+
+name: comprobar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: instalar
+        run: pip install -r requirements.txt
+
+      - name: el modelo de Riksi
+        run: |
+          git clone --depth 1 https://github.com/DiegoFernandoLojanTenesaca/riski.git /tmp/riksi
+          echo "RIKSI_MODELO=/tmp/riksi/docs/modelo" >> $GITHUB_ENV
+
+      - name: los pesos del codificador
+        # Se generan aquí porque son 235 MB que no se versionan. Es lo mismo que
+        # hace el Dockerfile al construir la imagen.
+        run: python codificador.py --preparar
+
+      - name: el codificador da lo mismo que fastembed
+        run: python codificador.py
+
+      - name: el índice separa lo que responde de lo que no
+        run: python indice.py
+
+      - name: la memoria no duplica ni borra de más
+        run: python memoria.py
+
+      - name: las herramientas y GBIF
+        # GBIF se cae de vez en cuando y no tiene sentido que eso ponga el
+        # repositorio en rojo: se reintenta antes de darlo por malo.
+        run: python herramientas.py || (sleep 30 && python herramientas.py)
+
+      - name: MCP habla el protocolo
+        run: python mcp_servidor.py --comprobar
